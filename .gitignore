@@ -1,0 +1,8 @@
+.venv/
+backend/.env
+backend/data/books/
+__pycache__/
+frontend/node_modules/
+*.pyc
+*.DS_Store
+

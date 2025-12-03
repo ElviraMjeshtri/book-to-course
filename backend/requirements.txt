@@ -4,3 +4,6 @@ python-multipart
 pypdf
 python-dotenv
 openai
+requests
+pillow
+anthropic

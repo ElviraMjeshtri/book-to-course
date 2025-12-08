@@ -109,6 +109,16 @@ button:disabled {
   box-shadow: inset 0 0 0 1px rgba(67, 56, 202, 0.3);
 }
 
+.primary-button.ghost {
+  background: transparent;
+  color: #1d4ed8;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35);
+}
+
+.primary-button.ghost:not(:disabled):hover {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.6);
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -521,6 +531,141 @@ code {
 
 .key-points li + li {
   margin-top: 0.35rem;
+}
+
+.lesson-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1.25rem 0 0.75rem;
+}
+
+.lesson-actions .status-pill {
+  margin-left: auto;
+}
+
+.resource-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.error-card.compact {
+  margin-top: 0;
+}
+
+.resource-block {
+  background: white;
+  border-radius: 0.9rem;
+  border: 1px solid #e5e7eb;
+  padding: 1rem 1.1rem;
+  margin-top: 1rem;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+}
+
+.resource-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.resource-heading h5 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.resource-meta {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.script-content {
+  white-space: pre-wrap;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular,
+    Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.88rem;
+  color: #0f172a;
+  background: #f8fafc;
+  border-radius: 0.6rem;
+  padding: 0.85rem;
+  margin: 0;
+  border: 1px solid #e2e8f0;
+}
+
+.quiz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.quiz-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  padding: 0.9rem;
+  background: #f9fafb;
+}
+
+.quiz-question {
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.quiz-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.88rem;
+  color: #475467;
+}
+
+.quiz-options li {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.quiz-options li + li {
+  margin-top: 0.25rem;
+}
+
+.quiz-answer {
+  margin: 0.6rem 0 0.2rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.quiz-explanation {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #475467;
+}
+
+.video-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lesson-video {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid #d4d8e6;
+  background: black;
+}
+
+.video-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: #475467;
+}
+
+.video-meta a {
+  color: #2563eb;
+  font-weight: 600;
 }
 
 @media (max-width: 1100px) {

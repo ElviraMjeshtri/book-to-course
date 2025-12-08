@@ -3,11 +3,35 @@ import React, { useRef, useState } from "react";
 import {
   uploadBook,
   generateOutline,
+  generateLessonScript,
+  generateLessonQuiz,
+  generateLessonVideo,
+  API_BASE_URL,
   type CourseOutline,
   type LessonOutline,
+  type QuizQuestion,
 } from "./api";
 
 type PillVariant = "success" | "info" | "warning" | "neutral";
+
+type LessonResources = {
+  script?: {
+    text: string;
+    length: number;
+  };
+  quiz?: QuizQuestion[];
+  videoUrl?: string;
+  loading?: {
+    script?: boolean;
+    quiz?: boolean;
+    video?: boolean;
+  };
+  errors?: {
+    script?: string;
+    quiz?: string;
+    video?: string;
+  };
+};
 
 const StatusPill = ({
   variant,
@@ -27,8 +51,61 @@ function App() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [lessonResources, setLessonResources] = useState<
+    Record<string, LessonResources>
+  >({});
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const currentLessonResources = selectedLesson
+    ? lessonResources[selectedLesson.id]
+    : undefined;
+
+  const normalizedApiBase = API_BASE_URL.endsWith("/")
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+  const currentVideoUrl = currentLessonResources?.videoUrl;
+  const absoluteVideoUrl = currentVideoUrl
+    ? currentVideoUrl.startsWith("http")
+      ? currentVideoUrl
+      : `${normalizedApiBase}${currentVideoUrl}`
+    : undefined;
+  const videoStatusLabel = currentLessonResources?.loading?.video
+    ? "Generating"
+    : currentVideoUrl
+      ? "Ready"
+      : "Not generated";
+  const videoStatusVariant: PillVariant =
+    currentLessonResources?.loading?.video
+      ? "info"
+      : currentVideoUrl
+        ? "success"
+        : "warning";
+
+  const updateLessonResources = (
+    lessonId: string,
+    updater: (prev: LessonResources | undefined) => LessonResources,
+  ) => {
+    setLessonResources((prev) => ({
+      ...prev,
+      [lessonId]: updater(prev[lessonId]),
+    }));
+  };
+
+  const extractErrorMessage = (err: unknown, fallback: string) => {
+    if (
+      err &&
+      typeof err === "object" &&
+      "response" in err &&
+      err.response &&
+      typeof err.response === "object" &&
+      "data" in err.response
+    ) {
+      const data = (err.response as { data?: { detail?: string } }).data;
+      return data?.detail || fallback;
+    }
+    return fallback;
+  };
 
   const handleFilePicker = () => {
     if (isUploading || isGeneratingOutline) return;
@@ -62,14 +139,15 @@ function App() {
     setIsUploading(true);
     setOutline(null);
     setSelectedLesson(null);
+    setLessonResources({});
 
     try {
       const res = await uploadBook(selectedFile);
       setBookId(res.book_id);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setError(
-        err?.response?.data?.detail || "Failed to upload book. Check backend.",
+        extractErrorMessage(err, "Failed to upload book. Check backend."),
       );
     } finally {
       setIsUploading(false);
@@ -86,6 +164,7 @@ function App() {
     setIsGeneratingOutline(true);
     setOutline(null);
     setSelectedLesson(null);
+    setLessonResources({});
 
     try {
       const res = await generateOutline(bookId);
@@ -93,14 +172,128 @@ function App() {
       if (res.outline.lessons.length > 0) {
         setSelectedLesson(res.outline.lessons[0]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setError(
-        err?.response?.data?.detail ||
-          "Failed to generate outline. Check backend & API key.",
+        extractErrorMessage(
+          err,
+          "Failed to generate outline. Check backend & API key."
+        ),
       );
     } finally {
       setIsGeneratingOutline(false);
+    }
+  };
+
+  const handleGenerateScript = async () => {
+    if (!bookId || !selectedLesson) {
+      setError("Select a lesson first.");
+      return;
+    }
+
+    const lessonId = selectedLesson.id;
+
+    updateLessonResources(lessonId, (prev = {}) => ({
+      ...prev,
+      errors: { ...prev.errors, script: undefined },
+      loading: { ...prev.loading, script: true },
+    }));
+
+    try {
+      const response = await generateLessonScript(bookId, lessonId);
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        script: {
+          text: response.script,
+          length: response.script_length,
+        },
+        loading: { ...prev.loading, script: false },
+      }));
+    } catch (err) {
+      const message = extractErrorMessage(
+        err,
+        "Failed to generate script. Check backend logs."
+      );
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        loading: { ...prev.loading, script: false },
+        errors: { ...prev.errors, script: message },
+      }));
+    }
+  };
+
+  const handleGenerateQuiz = async () => {
+    if (!bookId || !selectedLesson) {
+      setError("Select a lesson first.");
+      return;
+    }
+
+    const lessonId = selectedLesson.id;
+
+    updateLessonResources(lessonId, (prev = {}) => ({
+      ...prev,
+      errors: { ...prev.errors, quiz: undefined },
+      loading: { ...prev.loading, quiz: true },
+    }));
+
+    try {
+      const response = await generateLessonQuiz(bookId, lessonId);
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        quiz: response.questions,
+        loading: { ...prev.loading, quiz: false },
+      }));
+    } catch (err) {
+      const message = extractErrorMessage(
+        err,
+        "Failed to generate quiz. Check backend logs."
+      );
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        loading: { ...prev.loading, quiz: false },
+        errors: { ...prev.errors, quiz: message },
+      }));
+    }
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!bookId || !selectedLesson) {
+      setError("Select a lesson first.");
+      return;
+    }
+
+    const lessonId = selectedLesson.id;
+    const lessonIndex = outline?.lessons.findIndex(
+      (lesson) => lesson.id === lessonId,
+    );
+    if (lessonIndex === undefined || lessonIndex < 0) {
+      setError("Could not determine lesson order.");
+      return;
+    }
+
+    updateLessonResources(lessonId, (prev = {}) => ({
+      ...prev,
+      errors: { ...prev.errors, video: undefined },
+      loading: { ...prev.loading, video: true },
+    }));
+
+    try {
+      const response = await generateLessonVideo(bookId, lessonIndex);
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        videoUrl: response.video_url,
+        loading: { ...prev.loading, video: false },
+      }));
+    } catch (err) {
+      const message = extractErrorMessage(
+        err,
+        "Failed to generate video. Ensure script exists and HeyGen is configured."
+      );
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        loading: { ...prev.loading, video: false },
+        errors: { ...prev.errors, video: message },
+      }));
     }
   };
 
@@ -268,7 +461,7 @@ function App() {
           />
 
           <div className="file-picker">
-            <div>
+      <div>
               <p className="file-label">Selected file</p>
               <p className="file-name">
                 {selectedFile ? selectedFile.name : "No file selected"}
@@ -282,7 +475,7 @@ function App() {
             >
               {selectedFile ? "Change PDF" : "Choose PDF"}
             </button>
-          </div>
+      </div>
 
           <div className="action-row">
             <button
@@ -292,7 +485,7 @@ function App() {
               disabled={!selectedFile || isUploading}
             >
               {isUploading ? "Uploading..." : "Upload & extract"}
-            </button>
+        </button>
             <p className="action-hint">
               PDF size limit ≈ 20 MB · We parse the first 50 pages for now.
             </p>
@@ -368,8 +561,8 @@ function App() {
                   <p className="meta-label">Target audience</p>
                   <p className="meta-value">
                     {outline.target_audience || "Not specified"}
-                  </p>
-                </div>
+        </p>
+      </div>
                 <div>
                   <p className="meta-label">Lessons</p>
                   <p className="meta-value">{outline.lessons.length}</p>
@@ -422,6 +615,146 @@ function App() {
                           <li key={`${selectedLesson.id}-${index}`}>{kp}</li>
                         ))}
                       </ul>
+
+                        <div className="lesson-actions">
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={handleGenerateScript}
+                            disabled={
+                              !!currentLessonResources?.loading?.script ||
+                              isGeneratingOutline
+                            }
+                          >
+                            {currentLessonResources?.loading?.script
+                              ? "Generating script..."
+                              : "Generate Script"}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={handleGenerateQuiz}
+                            disabled={
+                              !!currentLessonResources?.loading?.quiz ||
+                              isGeneratingOutline
+                            }
+                          >
+                            {currentLessonResources?.loading?.quiz
+                              ? "Generating quiz..."
+                              : "Generate Quiz"}
+                          </button>
+                          <button
+                            type="button"
+                            className="primary-button ghost"
+                            onClick={handleGenerateVideo}
+                            disabled={
+                              !!currentLessonResources?.loading?.video ||
+                              isGeneratingOutline
+                            }
+                          >
+                            {currentLessonResources?.loading?.video
+                              ? "Generating video..."
+                              : "Generate Video"}
+                          </button>
+                          <StatusPill variant={videoStatusVariant}>
+                            {videoStatusLabel}
+                          </StatusPill>
+                        </div>
+
+                        {currentLessonResources?.errors && (
+                          <div className="resource-errors">
+                            {Object.entries(currentLessonResources.errors)
+                              .filter(([, value]) => value)
+                              .map(([key, value]) => (
+                                <p key={key} className="error-card compact">
+                                  {value}
+                                </p>
+                              ))}
+                          </div>
+                        )}
+
+                        {currentLessonResources?.script && (
+                          <section className="resource-block">
+                            <div className="resource-heading">
+                              <h5>Lesson Script</h5>
+                              <span className="resource-meta">
+                                ~{currentLessonResources.script.length} chars
+                              </span>
+                            </div>
+                            <pre className="script-content">
+                              {currentLessonResources.script.text}
+                            </pre>
+                          </section>
+                        )}
+
+                        {currentLessonResources?.quiz &&
+                          currentLessonResources.quiz.length > 0 && (
+                            <section className="resource-block">
+                              <div className="resource-heading">
+                                <h5>Quiz Questions</h5>
+                                <span className="resource-meta">
+                                  {currentLessonResources.quiz.length} items
+                                </span>
+                              </div>
+                              <div className="quiz-list">
+                                {currentLessonResources.quiz.map(
+                                  (question, idx) => (
+                                    <article
+                                      className="quiz-card"
+                                      key={`${selectedLesson.id}-quiz-${idx}`}
+                                    >
+                                      <p className="quiz-question">
+                                        Q{idx + 1}. {question.question}
+                                      </p>
+                                      <ul className="quiz-options">
+                                        {Object.entries(question.options).map(
+                                          ([optionKey, optionValue]) => (
+                                            <li key={optionKey}>
+                                              <span>{optionKey}.</span>
+                                              <span>{optionValue}</span>
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                      <p className="quiz-answer">
+                                        Correct answer:{" "}
+                                        <strong>
+                                          {question.correct_answer}
+                                        </strong>
+                                      </p>
+                                      <p className="quiz-explanation">
+                                        {question.explanation}
+                                      </p>
+                                    </article>
+                                  )
+                                )}
+                              </div>
+                            </section>
+                          )}
+
+                        {absoluteVideoUrl && (
+                          <section className="resource-block">
+                            <div className="resource-heading">
+                              <h5>Generated Video</h5>
+                            </div>
+                            <div className="video-wrapper">
+                              <video
+                                controls
+                                src={absoluteVideoUrl}
+                                className="lesson-video"
+                              />
+                              <div className="video-meta">
+                                <a
+                                  href={absoluteVideoUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open in new tab
+                                </a>
+                              </div>
+                            </div>
+                          </section>
+                        )}
                     </>
                   ) : (
                     <div className="empty-state compact">

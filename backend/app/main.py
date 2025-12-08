@@ -3,7 +3,9 @@ from typing import Any, Dict, List
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from pypdf import PdfReader
 
 from .pdf_utils import (
     save_uploaded_pdf,
@@ -19,7 +21,6 @@ from .script_generator import (
     generate_quiz_questions,
 )
 from .video_utils import (
-    generate_video_from_script,
     list_available_avatars,
     list_available_voices,
     HeyGenError,
@@ -29,6 +30,7 @@ from .video_enhancer import (
     check_ffmpeg_installed,
     VideoEnhancerError,
 )
+from .video_orchestrator import generate_lesson_video
 
 app = FastAPI(
     title="Book-to-Video Course Generator",
@@ -41,6 +43,12 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.mount(
+    "/static/books",
+    StaticFiles(directory=BOOKS_DIR),
+    name="books-static",
 )
 
 
@@ -69,8 +77,8 @@ async def upload_book(file: UploadFile = File(...)) -> Dict[str, Any]:
     # 1) Save PDF
     book_id, pdf_path = save_uploaded_pdf(file)
 
-    # 2) Extract text (for v1: first 50 pages)
-    text = extract_text_from_pdf(pdf_path, max_pages=50)
+    # 2) Extract text from the full book
+    text = extract_text_from_pdf(pdf_path, max_pages=None)
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from PDF")
 
@@ -79,8 +87,8 @@ async def upload_book(file: UploadFile = File(...)) -> Dict[str, Any]:
 
     return {
         "book_id": book_id,
-        "pages_processed": 50,
-        "message": "Book uploaded and text extracted.",
+        "pages_processed": len(PdfReader(str(pdf_path)).pages),
+        "message": "Book uploaded and full text extracted.",
     }
 
 
@@ -208,55 +216,18 @@ async def generate_quiz(book_id: str, lesson_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to generate quiz: {e}")
 
 
-@app.post("/books/{book_id}/lessons/{lesson_id}/video")
-async def generate_video(book_id: str, lesson_id: str) -> Dict[str, Any]:
-    """Generate a video for a specific lesson using HeyGen"""
-    # Load script
-    script_path = BOOKS_DIR / f"{book_id}_{lesson_id}_script.txt"
-    if not script_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="Script not found. Generate script first using /script endpoint."
-        )
-
-    script = script_path.read_text(encoding="utf-8")
-
-    # Load outline to get lesson title
-    outline_path = BOOKS_DIR / f"{book_id}_outline.json"
-    import json
-    outline = json.loads(outline_path.read_text(encoding="utf-8"))
-
-    lesson = None
-    for les in outline.get("lessons", []):
-        if les["id"] == lesson_id:
-            lesson = les
-            break
-
-    lesson_title = lesson["title"] if lesson else f"Lesson {lesson_id}"
-
-    # Generate video with HeyGen
+@app.post("/books/{book_id}/lessons/{lesson_index}/video")
+async def create_lesson_video(book_id: str, lesson_index: int) -> Dict[str, Any]:
     try:
-        video_result = generate_video_from_script(
-            script=script,
-            lesson_title=lesson_title
-        )
+        video_path = generate_lesson_video(book_id, lesson_index)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to generate video: {exc}") from exc
 
-        # Save video metadata
-        video_meta_path = BOOKS_DIR / f"{book_id}_{lesson_id}_video.json"
-        video_meta_path.write_text(json_dumps(video_result), encoding="utf-8")
-
-        return {
-            "book_id": book_id,
-            "lesson_id": lesson_id,
-            "video_id": video_result["video_id"],
-            "video_url": video_result["video_url"],
-            "duration": video_result["duration"],
-            "status": video_result["status"],
-        }
-    except HeyGenError as e:
-        raise HTTPException(status_code=500, detail=f"HeyGen API error: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate video: {e}")
+    return {
+        "book_id": book_id,
+        "lesson_index": lesson_index,
+        "video_url": f"/static/books/{book_id}/{video_path.name}",
+    }
 
 
 @app.get("/heygen/avatars")

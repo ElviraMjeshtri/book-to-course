@@ -10,6 +10,8 @@ from typing import List, Optional, Tuple
 from openai import OpenAI  # type: ignore[import]
 from pydantic import BaseModel
 
+from .lesson_content import LessonContent, load_lesson_content
+
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "books"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VIDEO_DIR = REPO_ROOT / "video"
@@ -202,6 +204,54 @@ def _chunk(items: List[str], size: int) -> List[List[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+def _load_content_if_available(book_id: str, lesson_id: str) -> Optional[LessonContent]:
+    candidates = [
+        DATA_DIR / f"{book_id}_{lesson_id}_content.json",
+        DATA_DIR / book_id / f"{book_id}_{lesson_id}_content.json",
+    ]
+    for path in candidates:
+        content = load_lesson_content(path)
+        if content:
+            return content
+    return None
+
+
+def _build_plan_from_content(content: LessonContent) -> LessonVideoPlan:
+    slides: List[Slide] = []
+    for section in content.sections:
+        for s in section.slides:
+            slides.append(
+                Slide(
+                    title=s.headline,
+                    bullets=s.bullet_points,
+                    codeSnippet=s.code_snippet,
+                    narration=s.narration or "",
+                )
+            )
+
+    if not slides:
+        slides.append(
+            Slide(
+                title=content.title,
+                bullets=["Lesson content available but no slides defined."],
+                narration="",
+            )
+        )
+
+    total_duration = max(
+        60,
+        int(content.estimated_minutes * 60) if content.estimated_minutes else 90,
+    )
+
+    return LessonVideoPlan(
+        lessonId=content.lesson_id,
+        title=content.title,
+        slides=slides,
+        totalDurationSec=total_duration,
+        slideTimings=[],
+    )
+
+
 def _build_plan_from_lesson(
     *, book_id: str, lesson_index: int, lesson: dict
 ) -> LessonVideoPlan:
@@ -301,6 +351,11 @@ def _build_plan(book_id: str, lesson_index: int) -> Tuple[LessonVideoPlan, Optio
     lessons = outline.get("lessons") if outline else None
     if lessons and 0 <= lesson_index < len(lessons):
         lesson = lessons[lesson_index]
+        lesson_id = lesson.get("id") or f"lesson_{lesson_index + 1}"
+        content = _load_content_if_available(book_id, lesson_id)
+        if content:
+            plan = _build_plan_from_content(content)
+            return plan, lesson
         plan = _build_plan_from_lesson(
             book_id=book_id,
             lesson_index=lesson_index,

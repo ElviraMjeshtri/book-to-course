@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,6 +12,7 @@ from openai import OpenAI  # type: ignore[import]
 from pydantic import BaseModel
 
 from .lesson_content import LessonContent, load_lesson_content
+from .pdf_utils import load_book_text
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "books"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -91,6 +93,43 @@ def _load_script(book_id: str, lesson_id: str) -> Optional[str]:
         if script_path.exists():
             return script_path.read_text(encoding="utf-8")
     return None
+
+
+def _auto_generate_script(
+    book_id: str, lesson_id: str, lesson: dict, outline: dict
+) -> Optional[str]:
+    """
+    Auto-generate a lesson script if one doesn't exist.
+    Uses the book text for context to create rich, detailed narration.
+    """
+    from .script_generator import generate_lesson_script
+
+    try:
+        book_text = load_book_text(book_id)
+    except FileNotFoundError:
+        book_text = ""
+
+    # Use more book context for richer scripts (up to 10k chars)
+    context_size = min(10000, len(book_text))
+    book_context = book_text[:context_size]
+
+    try:
+        script_text = generate_lesson_script(
+            lesson=lesson,
+            book_context=book_context,
+            course_title=outline.get("course_title", ""),
+            mode="prod",  # Use production mode for detailed, rich content
+        )
+
+        # Save the generated script for future use
+        script_path = DATA_DIR / f"{book_id}_{lesson_id}_script.txt"
+        script_path.write_text(script_text, encoding="utf-8")
+        print(f"✅ Auto-generated script for {lesson_id}: {len(script_text)} chars")
+
+        return script_text
+    except Exception as e:
+        print(f"⚠️ Failed to auto-generate script: {e}")
+        return None
 
 
 def _load_quiz(book_id: str, lesson_id: str) -> Optional[List[dict]]:
@@ -175,14 +214,37 @@ def _apply_narrations(
     slides: List[Slide],
     script_text: Optional[str],
 ) -> None:
+    """
+    Apply narrations to slides that don't already have them.
+    
+    IMPORTANT: Slides from _build_plan_from_script() already have narrations
+    correctly aligned to their content. We only fill in missing narrations
+    for slides that came from outline-only sources.
+    """
     if not slides:
         return
 
+    # Check if slides already have meaningful narrations
+    slides_with_narration = sum(1 for s in slides if s.narration.strip())
+    
+    # If most slides already have narration, don't overwrite them
+    if slides_with_narration >= len(slides) * 0.5:
+        # Just fill in any missing ones with defaults
+        for slide in slides:
+            if not slide.narration.strip():
+                slide.narration = _default_slide_narration(slide)
+        return
+
+    # Only split script if slides don't have narrations yet
     segments: List[str] = []
     if script_text:
         segments = _split_text_evenly(script_text, len(slides))
 
     for idx, slide in enumerate(slides):
+        # Skip slides that already have narration
+        if slide.narration.strip():
+            continue
+            
         candidate = ""
         if segments and idx < len(segments):
             candidate = segments[idx]
@@ -297,6 +359,15 @@ def _build_plan_from_lesson(
                 )
             )
 
+    # Add summary bullets to each slide to enrich fallback content
+    summary_bullets_for_all = summary_bullets[:4]
+    if summary_bullets_for_all:
+        for s in slides:
+            if len(s.bullets) < 4:
+                s.bullets.extend(
+                    [b for b in summary_bullets_for_all if b not in s.bullets]
+                )
+
     # Add an implementation / code sketch slide to make content richer
     impl_bullets: List[str] = []
     if "rag" in title.lower() or any("retriev" in kp.lower() for kp in key_points):
@@ -346,22 +417,161 @@ def _build_plan_from_lesson(
     )
 
 
+def _estimate_duration_from_text(text: str) -> int:
+    word_count = max(1, len(text.split()))
+    return max(60, int(math.ceil(word_count / 2.5)) + 5)
+
+
+def _extract_headline_from_chunk(chunk: List[str], idx: int, title: str) -> str:
+    """Extract a meaningful headline from a script chunk."""
+    if not chunk:
+        return f"{title}: Part {idx}"
+
+    # Try to find key phrases that indicate topic
+    first_sentence = chunk[0] if chunk else ""
+
+    # Common intro patterns to skip
+    skip_patterns = [
+        r"^(hey|hi|hello|welcome|let'?s|today|now|so|okay|alright)",
+        r"^(in this|we'?ll|we'?re going)",
+    ]
+
+    # Check if first sentence is just greeting/transition
+    first_lower = first_sentence.lower()
+    is_greeting = any(re.match(p, first_lower) for p in skip_patterns)
+
+    if is_greeting and len(chunk) > 1:
+        # Use second sentence for headline
+        headline_source = chunk[1]
+    else:
+        headline_source = first_sentence
+
+    # Truncate to reasonable headline length
+    headline = headline_source[:80]
+    if len(headline_source) > 80:
+        # Try to cut at word boundary
+        last_space = headline.rfind(" ")
+        if last_space > 40:
+            headline = headline[:last_space]
+        headline += "…"
+
+    return headline if headline.strip() else f"{title}: Part {idx}"
+
+
+def _build_plan_from_script(
+    *, lesson_id: str, title: str, script_text: str, code_snippet: Optional[str]
+) -> LessonVideoPlan:
+    sentences = [
+        s.strip()
+        for s in re.split(r"(?<=[.!?])\s+", script_text)
+        if s.strip()
+    ]
+    if not sentences:
+        sentences = [script_text.strip()]
+
+    # Target 4-6 slides for a good pace
+    target_slides = min(6, max(4, len(sentences) // 4 or 4))
+    chunks: List[List[str]] = []
+    for i in range(target_slides):
+        start = int(round(i * len(sentences) / target_slides))
+        end = int(round((i + 1) * len(sentences) / target_slides))
+        chunk = sentences[start:end] or []
+        if chunk:
+            chunks.append(chunk)
+
+    slides: List[Slide] = []
+    snippet_assigned = False
+
+    # Slide type labels for better visual structure
+    slide_labels = ["Introduction", "Core Concepts", "Deep Dive", "Key Insights", "Application", "Summary"]
+
+    for idx, chunk in enumerate(chunks):
+        # Generate a meaningful headline
+        label = slide_labels[idx] if idx < len(slide_labels) else f"Part {idx + 1}"
+        headline = _extract_headline_from_chunk(chunk, idx + 1, label)
+
+        # Create concise bullet points from sentences
+        bullets = []
+        for sent in chunk[:5]:  # Max 5 bullets per slide
+            bullet = sent[:120]  # Slightly shorter for readability
+            if len(sent) > 120:
+                last_space = bullet.rfind(" ")
+                if last_space > 60:
+                    bullet = bullet[:last_space]
+                bullet += "…"
+            bullets.append(bullet)
+
+        # Full narration is the chunk joined
+        narration = " ".join(chunk)
+
+        slides.append(
+            Slide(
+                title=headline,
+                bullets=bullets,
+                narration=narration,
+                codeSnippet=code_snippet if (code_snippet and not snippet_assigned and idx >= 1) else None,
+            )
+        )
+        if code_snippet and not snippet_assigned and idx >= 1:
+            snippet_assigned = True
+
+    # If code snippet wasn't placed, put it on the second-to-last slide
+    if code_snippet and not snippet_assigned and len(slides) > 1:
+        slides[-2].codeSnippet = code_snippet
+
+    total_duration = _estimate_duration_from_text(script_text)
+
+    return LessonVideoPlan(
+        lessonId=lesson_id,
+        title=title,
+        slides=slides,
+        totalDurationSec=total_duration,
+        slideTimings=[],
+    )
+
+
 def _build_plan(book_id: str, lesson_index: int) -> Tuple[LessonVideoPlan, Optional[dict]]:
     outline = _load_outline(book_id)
     lessons = outline.get("lessons") if outline else None
     if lessons and 0 <= lesson_index < len(lessons):
         lesson = lessons[lesson_index]
         lesson_id = lesson.get("id") or f"lesson_{lesson_index + 1}"
+
+        # 1. Try LessonContent JSON (richest source)
         content = _load_content_if_available(book_id, lesson_id)
         if content:
             plan = _build_plan_from_content(content)
             return plan, lesson
+
+        # 2. Try existing script
+        script_text = _load_script(book_id, lesson_id)
+        code_snippet = _code_snippet_from_lesson(lesson)
+
+        # 3. Auto-generate script if none exists (KEY FIX!)
+        if not script_text:
+            print(f"📝 No script found for {lesson_id}, auto-generating...")
+            script_text = _auto_generate_script(book_id, lesson_id, lesson, outline)
+
+        # 4. Build plan from script (detailed slides with rich narration)
+        if script_text:
+            plan = _build_plan_from_script(
+                lesson_id=lesson_id,
+                title=lesson.get("title") or f"Lesson {lesson_index + 1}",
+                script_text=script_text,
+                code_snippet=code_snippet,
+            )
+            return plan, lesson
+
+        # 5. Fallback to outline-only (last resort)
+        print(f"⚠️ Using outline-only fallback for {lesson_id}")
         plan = _build_plan_from_lesson(
             book_id=book_id,
             lesson_index=lesson_index,
             lesson=lesson,
         )
         return plan, lesson
+
+    # No outline available - use generic fallback
     fallback_plan = LessonVideoPlan(
         lessonId=f"{book_id}-lesson-{lesson_index}",
         title=f"Lesson {lesson_index + 1}",
@@ -481,7 +691,8 @@ def build_audio_and_timings_for_plan(
     concat_audios(segment_paths, final_audio_path)
 
     plan.slideTimings = timings
-    plan.totalDurationSec = max(plan.totalDurationSec, int(math.ceil(current_time)))
+    # Clamp total duration strictly to audio length to avoid tail with no audio
+    plan.totalDurationSec = max(1, int(math.ceil(current_time)))
 
     return plan, final_audio_path
 

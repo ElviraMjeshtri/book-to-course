@@ -130,6 +130,45 @@ def _default_slide_narration(slide: Slide) -> str:
     return " ".join(lines).strip()
 
 
+def _code_snippet_from_lesson(lesson: dict) -> Optional[str]:
+    title = lesson.get("title", "").lower()
+    key_points = lesson.get("key_points") or []
+    if "rag" in title or any("retriev" in kp.lower() for kp in key_points):
+        return (
+            "# Simple RAG query flow\n"
+            "from typing import List\n"
+            "import numpy as np\n"
+            "\n"
+            "def embed(text: str) -> np.ndarray:\n"
+            "    ...  # call your embedding model\n"
+            "\n"
+            "def top_k(query: str, vectors: List[np.ndarray], chunks: List[str], k=5):\n"
+            "    q = embed(query)\n"
+            "    sims = [float(np.dot(q, v) / (np.linalg.norm(q)*np.linalg.norm(v))) for v in vectors]\n"
+            "    idx = np.argsort(sims)[::-1][:k]\n"
+            "    return [(chunks[i], sims[i]) for i in idx]\n"
+            "\n"
+            "chunks = [\"... doc chunk ...\"]\n"
+            "vectors = [embed(c) for c in chunks]\n"
+            "hits = top_k(\"How do I chunk docs?\", vectors, chunks)\n"
+        )
+    if "prompt" in title or any("prompt" in kp.lower() for kp in key_points):
+        return (
+            "# Grounded prompt assembly\n"
+            "def build_prompt(question: str, contexts: list[str]) -> str:\n"
+            "    formatted = \"\\n\".join(f\"[doc{i}] {c}\" for i, c in enumerate(contexts, 1))\n"
+            "    return (\n"
+            "        \"You are a grounded assistant. Use only the provided docs.\\n\\n\"\n"
+            "        f\"Question: {question}\\n\\n\"\n"
+            "        f\"Context:\\n{formatted}\\n\\n\"\n"
+            "        \"If unsure, say you don't know. Cite doc ids.\"\n"
+            "    )\n"
+            "\n"
+            "prompt = build_prompt(\"Explain chunk overlap\", [\"chunking with 20-30% overlap helps continuity\"])\n"
+        )
+    return None
+
+
 def _apply_narrations(
     slides: List[Slide],
     script_text: Optional[str],
@@ -145,6 +184,17 @@ def _apply_narrations(
         candidate = ""
         if segments and idx < len(segments):
             candidate = segments[idx]
+        else:
+            # Build a richer fallback narration using bullets and headline
+            lines = [f"In this part: {slide.title}. Here's what we will cover."]
+            for b in slide.bullets:
+                lines.append(b)
+            if slide.codeSnippet:
+                lines.append(
+                    "We'll also walk through a short code demo to reinforce the idea."
+                )
+            lines.append("Pay attention to how this connects to grounding and latency.")
+            candidate = " ".join(lines)
         slide.narration = candidate.strip() or _default_slide_narration(slide)
 
 
@@ -159,6 +209,7 @@ def _build_plan_from_lesson(
     lesson_id = lesson.get("id") or f"lesson_{lesson_index + 1}"
     summary = lesson.get("summary", "")
     key_points = lesson.get("key_points") or []
+    code_snippet = _code_snippet_from_lesson(lesson)
     slides: List[Slide] = []
 
     summary_bullets = [line.strip() for line in summary.split(".") if line.strip()]
@@ -166,17 +217,20 @@ def _build_plan_from_lesson(
         slides.append(
             Slide(
                 title=f"{title} Overview",
-                bullets=summary_bullets[:3],
+                bullets=summary_bullets[:4],
+                narration="",
             )
         )
 
-    for idx, chunk in enumerate(_chunk(key_points, 3), start=1):
-        slides.append(
-            Slide(
-                title=f"Key Takeaways {idx}",
-                bullets=chunk,
+    if key_points:
+        for idx, chunk in enumerate(_chunk(key_points, 3), start=1):
+            slides.append(
+                Slide(
+                    title=f"Key Takeaways {idx}",
+                    bullets=chunk,
+                    narration="",
+                )
             )
-        )
 
     quiz_data = _load_quiz(book_id, lesson_id)
     if quiz_data:
@@ -189,16 +243,47 @@ def _build_plan_from_lesson(
                 Slide(
                     title="Quiz Preview",
                     bullets=quiz_bullets,
+                    narration="",
                 )
             )
+
+    # Add an implementation / code sketch slide to make content richer
+    impl_bullets: List[str] = []
+    if "rag" in title.lower() or any("retriev" in kp.lower() for kp in key_points):
+        impl_bullets = [
+            "Chunk docs (200–400 tokens, 20–30% overlap)",
+            "Embed and store vectors with metadata",
+            "Top-k search with similarity threshold",
+            "Trim to top context and ground the prompt",
+        ]
+    elif any("prompt" in kp.lower() for kp in key_points):
+        impl_bullets = [
+            "Keep system lean: ground in provided chunks",
+            "User: question + cited context list",
+            "Enforce 'I don’t know' when evidence missing",
+        ]
+    if impl_bullets:
+        slides.append(
+            Slide(
+                title="Implementation Sketch",
+                bullets=impl_bullets,
+                narration="",
+                codeSnippet=code_snippet,
+            )
+        )
 
     if not slides:
         slides.append(
             Slide(
                 title=title,
                 bullets=["Lesson highlights will appear here."],
+                narration="",
             )
         )
+
+    # Seed a code snippet into the first non-empty slide if available and not already placed
+    if code_snippet and slides and all(s.codeSnippet is None for s in slides):
+        slides[0].codeSnippet = code_snippet
 
     total_duration = max(60, len(slides) * 35)
 
@@ -207,6 +292,7 @@ def _build_plan_from_lesson(
         title=title,
         slides=slides,
         totalDurationSec=total_duration,
+        slideTimings=[],
     )
 
 

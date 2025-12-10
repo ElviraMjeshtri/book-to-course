@@ -138,6 +138,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
           <VideoPlayer
             src={videoUrl}
             title={lesson.title}
+            lessonId={lesson.id}
           />
         </div>
       )}

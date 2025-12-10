@@ -10,8 +10,10 @@ from pypdf import PdfReader
 from .pdf_utils import (
     save_uploaded_pdf,
     extract_text_from_pdf,
+    extract_images_from_pdf,
     save_book_text,
     load_book_text,
+    load_book_images,
     BOOKS_DIR,
 )
 from .llm_utils import generate_course_outline
@@ -85,10 +87,25 @@ async def upload_book(file: UploadFile = File(...)) -> Dict[str, Any]:
     # 3) Save raw text
     save_book_text(book_id, text)
 
+    # 4) Extract images from PDF
+    images = extract_images_from_pdf(pdf_path, book_id)
+
     return {
         "book_id": book_id,
         "pages_processed": len(PdfReader(str(pdf_path)).pages),
-        "message": "Book uploaded and full text extracted.",
+        "images_extracted": len(images),
+        "message": "Book uploaded, text and images extracted.",
+    }
+
+
+@app.get("/books/{book_id}/images")
+async def get_book_images(book_id: str) -> Dict[str, Any]:
+    """Get list of images extracted from a book."""
+    images = load_book_images(book_id)
+    return {
+        "book_id": book_id,
+        "images": images,
+        "count": len(images),
     }
 
 

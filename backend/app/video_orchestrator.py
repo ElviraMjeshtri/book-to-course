@@ -12,7 +12,7 @@ from openai import OpenAI  # type: ignore[import]
 from pydantic import BaseModel
 
 from .lesson_content import LessonContent, load_lesson_content
-from .pdf_utils import load_book_text
+from .pdf_utils import load_book_text, load_book_images
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "books"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +28,8 @@ class Slide(BaseModel):
     bullets: List[str]
     codeSnippet: Optional[str] = None
     narration: str = ""
+    visualHint: Optional[str] = None  # Description of diagram/visual to show
+    imagePath: Optional[str] = None  # Path to image from book (relative to static)
 
 
 class SlideTiming(BaseModel):
@@ -422,45 +424,338 @@ def _estimate_duration_from_text(text: str) -> int:
     return max(60, int(math.ceil(word_count / 2.5)) + 5)
 
 
-def _extract_headline_from_chunk(chunk: List[str], idx: int, title: str) -> str:
-    """Extract a meaningful headline from a script chunk."""
-    if not chunk:
-        return f"{title}: Part {idx}"
+def _extract_key_points_from_chunk(chunk_text: str, slide_type: str) -> Tuple[str, List[str]]:
+    """
+    Use LLM to extract concise key points from a script chunk.
+    Returns (headline, bullet_points) where bullets are 3-7 words each.
+    """
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You extract key concepts from educational content for presentation slides.
+                    
+Rules:
+- Headline: 3-6 words, captures the main topic
+- Bullets: 3-5 items, each 3-7 words MAX
+- Use noun phrases, not full sentences
+- Focus on concepts, terms, and key ideas
+- NO periods at end of bullets
 
-    # Try to find key phrases that indicate topic
-    first_sentence = chunk[0] if chunk else ""
+Example input: "Today we'll explore how RAG systems work. RAG stands for Retrieval-Augmented Generation. It combines a retriever that finds relevant documents with a language model that generates responses."
 
-    # Common intro patterns to skip
-    skip_patterns = [
-        r"^(hey|hi|hello|welcome|let'?s|today|now|so|okay|alright)",
-        r"^(in this|we'?ll|we'?re going)",
+Example output:
+HEADLINE: Understanding RAG Systems
+BULLETS:
+- Retrieval-Augmented Generation
+- Document retrieval + LLM generation
+- Grounded, factual responses
+- Reduced hallucination risk"""
+                },
+                {
+                    "role": "user", 
+                    "content": f"Extract key points for a '{slide_type}' slide:\n\n{chunk_text[:1500]}"
+                }
+            ],
+            temperature=0.3,
+            max_tokens=200,
+        )
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Parse the response
+        headline = slide_type
+        bullets: List[str] = []
+        
+        lines = result.split("\n")
+        for line in lines:
+            line = line.strip()
+            if line.upper().startswith("HEADLINE:"):
+                headline = line.split(":", 1)[1].strip()
+            elif line.startswith("-"):
+                bullet = line[1:].strip()
+                if bullet and len(bullet.split()) <= 10:  # Max 10 words
+                    bullets.append(bullet)
+        
+        # Fallback if parsing failed
+        if not bullets:
+            bullets = _fallback_extract_keywords(chunk_text)
+        
+        return headline, bullets[:5]  # Max 5 bullets
+        
+    except Exception as e:
+        print(f"⚠️ LLM extraction failed: {e}, using fallback")
+        return slide_type, _fallback_extract_keywords(chunk_text)
+
+
+def _fallback_extract_keywords(text: str) -> List[str]:
+    """
+    Fallback keyword extraction without LLM.
+    Extracts key noun phrases and technical terms.
+    """
+    # Common technical terms to look for
+    tech_patterns = [
+        r'\b(RAG|LLM|API|ML|AI|NLP|GPU|CPU|SDK|REST|JSON|SQL|NoSQL)\b',
+        r'\b\w+ing\s+\w+\b',  # gerund phrases like "building systems"
+        r'\b\w+tion\b',  # words ending in -tion
+        r'\b\w+ment\b',  # words ending in -ment
     ]
+    
+    # Split into sentences and extract key phrases
+    sentences = re.split(r'[.!?]', text)
+    keywords: List[str] = []
+    
+    for sent in sentences[:6]:
+        sent = sent.strip()
+        if not sent:
+            continue
+            
+        # Extract first few meaningful words
+        words = sent.split()
+        if len(words) >= 3:
+            # Take first 3-5 words, skip common starters
+            start_idx = 0
+            skip_words = {'the', 'a', 'an', 'this', 'that', 'we', 'you', 'it', 'so', 'now', 'here'}
+            while start_idx < len(words) and words[start_idx].lower() in skip_words:
+                start_idx += 1
+            
+            phrase = " ".join(words[start_idx:start_idx + 4])
+            if phrase and len(phrase) > 5:
+                # Clean up and capitalize
+                phrase = phrase.rstrip('.,!?:;')
+                if phrase:
+                    keywords.append(phrase.title() if not phrase[0].isupper() else phrase)
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique_keywords = []
+    for kw in keywords:
+        kw_lower = kw.lower()
+        if kw_lower not in seen:
+            seen.add(kw_lower)
+            unique_keywords.append(kw)
+    
+    return unique_keywords[:5]
 
-    # Check if first sentence is just greeting/transition
-    first_lower = first_sentence.lower()
-    is_greeting = any(re.match(p, first_lower) for p in skip_patterns)
 
-    if is_greeting and len(chunk) > 1:
-        # Use second sentence for headline
-        headline_source = chunk[1]
-    else:
-        headline_source = first_sentence
+def _should_show_code(chunk_text: str) -> bool:
+    """Determine if this chunk should show a code example."""
+    code_indicators = [
+        r'\bcode\b', r'\bfunction\b', r'\bimplementation\b', r'\bexample\b',
+        r'\bdef\s+\w+', r'\bclass\s+\w+', r'\bimport\b', r'\breturn\b',
+        r'\blet\s+\w+', r'\bconst\s+\w+', r'\bvar\s+\w+',
+        r'```', r'\bsnippet\b', r'\bwrite\b.*\bcode\b',
+    ]
+    text_lower = chunk_text.lower()
+    return any(re.search(pattern, text_lower) for pattern in code_indicators)
 
-    # Truncate to reasonable headline length
-    headline = headline_source[:80]
-    if len(headline_source) > 80:
-        # Try to cut at word boundary
-        last_space = headline.rfind(" ")
-        if last_space > 40:
-            headline = headline[:last_space]
-        headline += "…"
 
-    return headline if headline.strip() else f"{title}: Part {idx}"
+def _match_images_to_slides(
+    slides: List[Slide],
+    book_images: List[dict],
+    lesson_title: str,
+) -> None:
+    """
+    Match relevant images from the book to slides using LLM.
+    Uses vision-generated descriptions for better matching.
+    Updates slides in-place with imagePath when a good match is found.
+    """
+    if not book_images:
+        print("⚠️ No images to match")
+        return
+    
+    print(f"🔍 Matching {len(book_images)} images to {len(slides)} slides for: {lesson_title}")
+    
+    # Filter out decorative images and those without descriptions
+    meaningful_images = [
+        img for img in book_images 
+        if not img.get('is_decorative', False) 
+        and img.get('description', '').strip()
+        and 'decorative' not in img.get('description', '').lower()
+        and 'logo' not in img.get('description', '').lower()
+        and 'icon' not in img.get('description', '').lower()
+    ]
+    
+    if not meaningful_images:
+        # Fallback to all images if no meaningful ones found
+        meaningful_images = [img for img in book_images if img.get('description', '').strip()]
+    
+    print(f"📊 {len(meaningful_images)} meaningful images (filtered from {len(book_images)})")
+    
+    # Take a sample of images spread across the book
+    sample_size = min(25, len(meaningful_images))
+    step = max(1, len(meaningful_images) // sample_size)
+    sampled_images = [meaningful_images[i] for i in range(0, len(meaningful_images), step)][:sample_size]
+    
+    image_summaries = []
+    for img in sampled_images:
+        # Use the vision-generated description
+        description = img.get('description', '').strip()
+        if not description:
+            continue
+        summary = f"{img['id']} (page {img['page']}): {description}"
+        image_summaries.append(summary)
+    
+    if not image_summaries:
+        print("⚠️ No image summaries generated - images may not have been analyzed")
+        return
+    
+    images_text = "\n".join(image_summaries)
+    print(f"📝 Image summaries:\n{images_text[:1000]}...")
+    
+    # Build slide summaries
+    slide_summaries = []
+    for idx, slide in enumerate(slides):
+        bullets_text = ", ".join(slide.bullets[:3])
+        slide_summaries.append(f"{idx}: {slide.title} - {bullets_text}")
+    
+    slides_text = "\n".join(slide_summaries)
+    
+    print(f"📝 Slides to match:\n{slides_text[:500]}...")
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You match technical book images/diagrams to presentation slides based on content relevance.
+
+Each image has a description of what it shows (diagram, architecture, chart, etc.).
+Your task: Match the MOST RELEVANT image to each slide based on the image description and slide topic.
+
+Output format - one match per line:
+SLIDE_NUMBER:IMAGE_ID
+
+Example:
+0:img_5
+2:img_12
+4:img_8
+
+Rules:
+- ONLY match if the image description DIRECTLY relates to the slide topic
+- Architecture diagrams should match architecture/system design slides
+- Code examples should match implementation/coding slides
+- Flow diagrams should match process/workflow slides
+- Charts should match data/comparison slides
+- Each slide should get a DIFFERENT image (no duplicates)
+- Skip slides where no image is a good match
+- If no good matches exist, output: NO_MATCHES"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Lesson: {lesson_title}
+
+IMAGES (with descriptions from vision analysis):
+{images_text}
+
+SLIDES TO MATCH:
+{slides_text}
+
+Match the most relevant image to each slide based on the image descriptions:"""
+                }
+            ],
+            temperature=0.2,
+            max_tokens=300,
+        )
+        
+        result = response.choices[0].message.content.strip()
+        print(f"🤖 LLM response:\n{result}")
+        
+        if "NO_MATCHES" in result.upper():
+            print("⚠️ LLM found no matches")
+            return
+        
+        # Parse matches - keep only FIRST match per slide
+        image_by_id = {img['id']: img for img in book_images}
+        slides_with_images: set = set()  # Track which slides already have images
+        matches_found = 0
+        
+        for line in result.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            
+            # Handle various formats: "0:img_5", "Slide 0: img_5", "0 - img_5"
+            match = re.search(r'(\d+)\s*[:\-]\s*(img_\d+)', line, re.IGNORECASE)
+            if not match:
+                continue
+            
+            try:
+                slide_idx = int(match.group(1))
+                image_id = match.group(2).lower()
+                
+                # Skip if this slide already has an image
+                if slide_idx in slides_with_images:
+                    continue
+                
+                if slide_idx < len(slides) and image_id in image_by_id:
+                    img = image_by_id[image_id]
+                    # Set the relative path for static serving
+                    slides[slide_idx].imagePath = f"/static/books/{img['relative_path']}"
+                    slides_with_images.add(slide_idx)
+                    print(f"✅ Matched {image_id} (page {img['page']}) → slide {slide_idx}: {slides[slide_idx].title}")
+                    matches_found += 1
+                else:
+                    print(f"⚠️ Could not match: slide_idx={slide_idx}, image_id={image_id}")
+            except (ValueError, IndexError) as e:
+                print(f"⚠️ Parse error for line '{line}': {e}")
+                continue
+        
+        print(f"📊 Unique slides with images: {matches_found}/{len(slides)}")
+                
+    except Exception as e:
+        print(f"❌ Image matching failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def _copy_matched_images_to_public(slides: List[Slide], book_id: str) -> None:
+    """
+    Copy matched images to Remotion public folder and update paths.
+    This allows Remotion to access the images during rendering.
+    """
+    for slide in slides:
+        if not slide.imagePath:
+            continue
+        
+        # Extract the relative path from the static URL
+        # e.g., "/static/books/book_id/images/page_1_img_1.png"
+        parts = slide.imagePath.split("/static/books/")
+        if len(parts) != 2:
+            continue
+        
+        relative_path = parts[1]  # "book_id/images/page_1_img_1.png"
+        source_path = DATA_DIR / relative_path
+        
+        if not source_path.exists():
+            print(f"⚠️ Image not found: {source_path}")
+            slide.imagePath = None
+            continue
+        
+        # Copy to Remotion public folder
+        target_path = GENERATED_ASSETS_DIR / book_id / "images" / source_path.name
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source_path, target_path)
+        
+        # Update path to be relative to Remotion public folder
+        slide.imagePath = f"/generated/{book_id}/images/{source_path.name}"
+        print(f"📁 Copied image to Remotion: {slide.imagePath}")
 
 
 def _build_plan_from_script(
     *, lesson_id: str, title: str, script_text: str, code_snippet: Optional[str]
 ) -> LessonVideoPlan:
+    """
+    Build a lesson video plan from a script.
+    
+    Key improvement: Slides show concise key points (3-7 words each),
+    while narration contains the full detailed explanation.
+    This mimics how real video courses work - slides have bullet points,
+    tutor explains in detail.
+    """
     sentences = [
         s.strip()
         for s in re.split(r"(?<=[.!?])\s+", script_text)
@@ -480,44 +775,42 @@ def _build_plan_from_script(
             chunks.append(chunk)
 
     slides: List[Slide] = []
-    snippet_assigned = False
+    code_placed = False
 
     # Slide type labels for better visual structure
     slide_labels = ["Introduction", "Core Concepts", "Deep Dive", "Key Insights", "Application", "Summary"]
 
     for idx, chunk in enumerate(chunks):
-        # Generate a meaningful headline
-        label = slide_labels[idx] if idx < len(slide_labels) else f"Part {idx + 1}"
-        headline = _extract_headline_from_chunk(chunk, idx + 1, label)
-
-        # Create concise bullet points from sentences
-        bullets = []
-        for sent in chunk[:5]:  # Max 5 bullets per slide
-            bullet = sent[:120]  # Slightly shorter for readability
-            if len(sent) > 120:
-                last_space = bullet.rfind(" ")
-                if last_space > 60:
-                    bullet = bullet[:last_space]
-                bullet += "…"
-            bullets.append(bullet)
-
-        # Full narration is the chunk joined
-        narration = " ".join(chunk)
-
+        # Join chunk into full text for analysis
+        chunk_text = " ".join(chunk)
+        
+        # Get slide type label
+        slide_type = slide_labels[idx] if idx < len(slide_labels) else f"Part {idx + 1}"
+        
+        # Extract concise key points using LLM (or fallback)
+        headline, bullets = _extract_key_points_from_chunk(chunk_text, slide_type)
+        
+        # Full narration is the original chunk - this is what the tutor says
+        narration = chunk_text
+        
+        # Determine if this slide should show code
+        show_code = code_snippet and not code_placed and _should_show_code(chunk_text)
+        if show_code:
+            code_placed = True
+        
         slides.append(
             Slide(
                 title=headline,
                 bullets=bullets,
                 narration=narration,
-                codeSnippet=code_snippet if (code_snippet and not snippet_assigned and idx >= 1) else None,
+                codeSnippet=code_snippet if show_code else None,
             )
         )
-        if code_snippet and not snippet_assigned and idx >= 1:
-            snippet_assigned = True
 
-    # If code snippet wasn't placed, put it on the second-to-last slide
-    if code_snippet and not snippet_assigned and len(slides) > 1:
-        slides[-2].codeSnippet = code_snippet
+    # If code snippet wasn't placed but we have one, put it on a relevant slide
+    if code_snippet and not code_placed and len(slides) > 2:
+        # Place on slide 2 or 3 (after intro, during core content)
+        slides[min(2, len(slides) - 1)].codeSnippet = code_snippet
 
     total_duration = _estimate_duration_from_text(script_text)
 
@@ -704,6 +997,14 @@ def generate_lesson_video(book_id: str, lesson_index: int) -> Path:
     plan, lesson_meta = _build_plan(book_id, lesson_index)
     script_text = _load_script(book_id, plan.lessonId)
     _apply_narrations(plan.slides, script_text)
+
+    # Match book images to slides
+    book_images = load_book_images(book_id)
+    if book_images:
+        print(f"📷 Found {len(book_images)} images, matching to slides...")
+        _match_images_to_slides(plan.slides, book_images, plan.title)
+        # Copy matched images to Remotion public folder
+        _copy_matched_images_to_public(plan.slides, book_id)
 
     plan, final_audio_path = build_audio_and_timings_for_plan(plan, book_dir)
     audio_public = _copy_to_public(final_audio_path, book_id=book_id)

@@ -1,0 +1,16 @@
+{
+  "plan": {
+    "lessonId": "demo-1",
+    "title": "Demo Lesson",
+    "totalDurationSec": 60,
+    "slides": [
+      {
+        "title": "What is Python?",
+        "bullets": ["High-level", "Dynamic typing", "Huge ecosystem"]
+      }
+    ]
+  },
+  "audioSrc": "./assets/demo_narration.mp3",
+  "avatarSrc": "./assets/demo_avatar.mp4"
+}
+

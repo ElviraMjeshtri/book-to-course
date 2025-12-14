@@ -3,6 +3,9 @@ backend/.env
 backend/data/books/
 __pycache__/
 frontend/node_modules/
+video/node_modules/
+video/public/generated/
+backend/data/
 *.pyc
 *.DS_Store
 ADVANCED_VIDEO_LAYOUTS.md

@@ -1,6 +1,6 @@
 /**
  * Design System Theme
- * Professional course video styling inspired by Udemy/Pluralsight
+ * Professional course video styling
  */
 
 // === SPACING SCALE ===

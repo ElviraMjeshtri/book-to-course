@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +33,8 @@ from .video_enhancer import (
     VideoEnhancerError,
 )
 from .video_orchestrator import generate_lesson_video
+from .config import config, AVAILABLE_MODELS, Provider
+from .llm_client import llm_client
 
 app = FastAPI(
     title="Book-to-Video Course Generator",
@@ -64,6 +66,12 @@ class CodeSnippet(BaseModel):
 class EnhanceRequest(BaseModel):
     code_snippets: List[CodeSnippet]
     layout: str = "avatar-corner"
+
+
+class UpdateConfigRequest(BaseModel):
+    provider: Provider
+    model: str
+    api_key: Optional[str] = None
 
 
 @app.get("/health")
@@ -366,3 +374,62 @@ async def check_ffmpeg_status() -> Dict[str, Any]:
         "message": "FFmpeg is ready!" if is_installed else "FFmpeg not found",
         "enhancement_available": is_installed
     }
+
+
+# ============================================================================
+# Configuration Endpoints
+# ============================================================================
+
+@app.get("/config/models")
+async def get_available_models() -> Dict[str, Any]:
+    """Get all available AI models grouped by provider"""
+    return config.get_available_models()
+
+
+@app.get("/config/current")
+async def get_current_config() -> Dict[str, Any]:
+    """Get current AI model configuration"""
+    return config.get_current_config()
+
+
+@app.post("/config/model")
+async def update_model_config(request: UpdateConfigRequest) -> Dict[str, Any]:
+    """
+    Update AI model configuration
+
+    Body:
+        provider: AI provider (openai, anthropic, gemini)
+        model: Model ID
+        api_key: Optional API key (if not provided, uses existing or .env)
+    """
+    try:
+        success = config.update_config(
+            provider=request.provider,
+            model=request.model,
+            api_key=request.api_key
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": f"Configuration updated to {request.provider} - {request.model}",
+                "config": config.get_current_config()
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update configuration")
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating configuration: {str(e)}")
+
+
+@app.post("/config/test")
+async def test_connection() -> Dict[str, Any]:
+    """Test the current AI model configuration"""
+    result = llm_client.test_connection()
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result

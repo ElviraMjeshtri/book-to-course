@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from .lesson_content import LessonContent, load_lesson_content
 from .pdf_utils import load_book_text, load_book_images
+from .llm_client import llm_client
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "books"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -20,7 +21,8 @@ VIDEO_DIR = REPO_ROOT / "video"
 PUBLIC_ASSETS_DIR = VIDEO_DIR / "public"
 GENERATED_ASSETS_DIR = PUBLIC_ASSETS_DIR / "generated"
 
-client = OpenAI()
+# OpenAI client specifically for TTS (text-to-speech) - provider-specific feature
+openai_client = OpenAI()
 
 
 class Slide(BaseModel):
@@ -49,7 +51,8 @@ class LessonVideoPlan(BaseModel):
 def synthesize_tts(text: str, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     temp_mp3 = out_path.with_suffix(".tmp.mp3")
-    with client.audio.speech.with_streaming_response.create(
+    # TTS is OpenAI-specific, use openai_client directly
+    with openai_client.audio.speech.with_streaming_response.create(
         model="tts-1",
         voice="alloy",
         input=text,
@@ -430,13 +433,12 @@ def _extract_key_points_from_chunk(chunk_text: str, slide_type: str) -> Tuple[st
     Returns (headline, bullet_points) where bullets are 3-7 words each.
     """
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        result = llm_client.chat_completion(
             messages=[
                 {
                     "role": "system",
                     "content": """You extract key concepts from educational content for presentation slides.
-                    
+
 Rules:
 - Headline: 3-6 words, captures the main topic
 - Bullets: 3-5 items, each 3-7 words MAX
@@ -455,15 +457,13 @@ BULLETS:
 - Reduced hallucination risk"""
                 },
                 {
-                    "role": "user", 
+                    "role": "user",
                     "content": f"Extract key points for a '{slide_type}' slide:\n\n{chunk_text[:1500]}"
                 }
             ],
             temperature=0.3,
             max_tokens=200,
-        )
-        
-        result = response.choices[0].message.content.strip()
+        ).strip()
         
         # Parse the response
         headline = slide_type
@@ -616,8 +616,7 @@ def _match_images_to_slides(
     print(f"📝 Slides to match:\n{slides_text[:500]}...")
     
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        result = llm_client.chat_completion(
             messages=[
                 {
                     "role": "system",
@@ -659,9 +658,7 @@ Match the most relevant image to each slide based on the image descriptions:"""
             ],
             temperature=0.2,
             max_tokens=300,
-        )
-        
-        result = response.choices[0].message.content.strip()
+        ).strip()
         print(f"🤖 LLM response:\n{result}")
         
         if "NO_MATCHES" in result.upper():

@@ -61,6 +61,50 @@ export interface GenerateVideoResponse {
   lesson_index: number;
 }
 
+export interface ModelInfo {
+  name: string;
+  description: string;
+  cost: string;
+  speed: string;
+}
+
+export interface ProviderModels {
+  name: string;
+  has_api_key: boolean;
+  models: Record<string, ModelInfo>;
+}
+
+export interface AvailableModelsResponse {
+  [provider: string]: ProviderModels;
+}
+
+export interface CurrentConfigResponse {
+  provider: string;
+  model: string;
+  model_info: ModelInfo;
+  has_api_key: boolean;
+}
+
+export interface UpdateConfigRequest {
+  provider: string;
+  model: string;
+  api_key?: string;
+}
+
+export interface UpdateConfigResponse {
+  success: boolean;
+  message: string;
+  config: CurrentConfigResponse;
+}
+
+export interface TestConnectionResponse {
+  success: boolean;
+  message: string;
+  response?: string;
+  provider: string;
+  model: string;
+}
+
 export async function uploadBook(file: File): Promise<UploadBookResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -111,3 +155,28 @@ export async function generateLessonVideo(
   return response.data;
 }
 
+// ============================================================================
+// Configuration API
+// ============================================================================
+
+export async function getAvailableModels(): Promise<AvailableModelsResponse> {
+  const response = await api.get<AvailableModelsResponse>("/config/models");
+  return response.data;
+}
+
+export async function getCurrentConfig(): Promise<CurrentConfigResponse> {
+  const response = await api.get<CurrentConfigResponse>("/config/current");
+  return response.data;
+}
+
+export async function updateModelConfig(
+  request: UpdateConfigRequest
+): Promise<UpdateConfigResponse> {
+  const response = await api.post<UpdateConfigResponse>("/config/model", request);
+  return response.data;
+}
+
+export async function testConnection(): Promise<TestConnectionResponse> {
+  const response = await api.post<TestConnectionResponse>("/config/test");
+  return response.data;
+}

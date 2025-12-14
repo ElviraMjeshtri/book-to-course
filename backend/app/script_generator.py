@@ -6,16 +6,13 @@ Supports TEST mode (1-2 mins) and PROD mode (6-8 mins)
 import os
 from typing import Dict, Any, List, Literal
 from dotenv import load_dotenv
-from openai import OpenAI
+
+from .llm_client import llm_client
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # Set video mode: 'test' for 1-2 min videos, 'prod' for 6-8 min videos
 VIDEO_MODE = os.getenv("VIDEO_MODE", "test").lower()
-
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 # System prompt for TEST mode (short videos)
@@ -90,9 +87,6 @@ def generate_lesson_script(
     Returns:
         Script text ready for video generation
     """
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
     # Determine mode (allow override via parameter)
     script_mode = mode if mode is not None else VIDEO_MODE
 
@@ -151,9 +145,8 @@ GOOD example: "Variables store data. For example, we can write name equals Alice
 BAD example: "Variables store data. [SHOW_CODE] See this code. [PAUSE]"
 """
 
-    # Call OpenAI
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+    # Call LLM via unified client
+    script = llm_client.chat_completion(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -161,8 +154,6 @@ BAD example: "Variables store data. [SHOW_CODE] See this code. [PAUSE]"
         temperature=0.7,
         max_tokens=max_tokens,
     )
-
-    script = response.choices[0].message.content
 
     # Add mode indicator to script metadata (for debugging)
     print(f"📝 Generated script in {script_mode.upper()} mode: {len(script)} chars (~{len(script.split())} words)")
@@ -181,9 +172,6 @@ def extract_code_examples(book_text: str, lesson_topic: str) -> List[str]:
     Returns:
         List of code snippets
     """
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
     prompt = f"""
 From the following book text, extract 2-4 relevant code examples for the lesson topic: "{lesson_topic}"
 
@@ -202,8 +190,7 @@ CODE_EXAMPLE_2:
 ```
 """
 
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+    content = llm_client.chat_completion(
         messages=[
             {"role": "system", "content": "You extract code examples from technical books."},
             {"role": "user", "content": prompt},
@@ -213,7 +200,6 @@ CODE_EXAMPLE_2:
     )
 
     # Parse the response to extract code blocks
-    content = response.choices[0].message.content
     code_examples = []
 
     # Simple parsing - look for code blocks
@@ -234,9 +220,6 @@ def generate_quiz_questions(lesson: Dict[str, Any]) -> List[Dict[str, Any]]:
     Returns:
         List of quiz questions with multiple choice answers
     """
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
     prompt = f"""
 Create 4 multiple-choice quiz questions for this lesson:
 
@@ -275,8 +258,7 @@ Format as JSON:
 Mix conceptual and practical questions.
 """
 
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+    content = llm_client.chat_completion(
         messages=[
             {"role": "system", "content": "You create quiz questions for technical courses."},
             {"role": "user", "content": prompt},
@@ -287,7 +269,6 @@ Mix conceptual and practical questions.
 
     # Parse JSON response
     import json
-    content = response.choices[0].message.content
 
     # Try to extract JSON from response
     try:

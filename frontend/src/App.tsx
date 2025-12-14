@@ -27,6 +27,7 @@ type LessonResources = {
 function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [bookId, setBookId] = useState<string | null>(null);
+  const [bookTitle, setBookTitle] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
   const [outline, setOutline] = useState<CourseOutline | null>(null);
@@ -79,6 +80,9 @@ function App() {
     try {
       const res = await uploadBook(selectedFile);
       setBookId(res.book_id);
+      // Extract book title from filename
+      const title = selectedFile.name.replace(/\.pdf$/i, "");
+      setBookTitle(title);
     } catch (err) {
       setError(extractErrorMessage(err, "Failed to upload book. Check backend."));
     } finally {
@@ -197,6 +201,13 @@ function App() {
 
   const currentStep = getCurrentStep();
 
+  // Truncate book title for display
+  const displayTitle = bookTitle
+    ? bookTitle.length > 40
+      ? bookTitle.substring(0, 40) + "..."
+      : bookTitle
+    : null;
+
   return (
     <div className="app">
       {/* Header */}
@@ -205,12 +216,14 @@ function App() {
           <span className="brand-icon">📖</span>
           <h1>Book to Course</h1>
         </div>
-        <div className="header-status">
-          {bookId && (
-            <span className="status-indicator active">Book loaded</span>
+        <div className="header-meta">
+          {displayTitle && (
+            <span className="book-title" title={bookTitle || ""}>
+              {displayTitle}
+            </span>
           )}
           {outline && (
-            <span className="status-indicator active">
+            <span className="lesson-count-badge">
               {outline.lessons.length} lessons
             </span>
           )}
@@ -221,29 +234,62 @@ function App() {
       <main className="app-main">
         {/* Sidebar - Steps */}
         <aside className="app-sidebar">
-          <div className={`step-card ${currentStep === 1 ? "active" : currentStep > 1 ? "completed" : ""}`}>
-            <UploadStep
-              selectedFile={selectedFile}
-              isUploading={isUploading}
-              bookId={bookId}
-              disabled={isGeneratingOutline}
-              error={currentStep === 1 ? error : null}
-              onFileSelect={setSelectedFile}
-              onUpload={handleUpload}
-            />
+          {/* Step 1: Upload */}
+          <div className={`step-card ${currentStep === 1 ? "active" : currentStep > 1 ? "completed collapsed" : ""}`}>
+            {currentStep > 1 ? (
+              <div className="step-collapsed">
+                <span className="step-check">✓</span>
+                <span className="step-collapsed-title">Book uploaded</span>
+                <span className="step-collapsed-meta">{displayTitle}</span>
+              </div>
+            ) : (
+              <UploadStep
+                selectedFile={selectedFile}
+                isUploading={isUploading}
+                bookId={bookId}
+                disabled={isGeneratingOutline}
+                error={currentStep === 1 ? error : null}
+                onFileSelect={setSelectedFile}
+                onUpload={handleUpload}
+              />
+            )}
           </div>
 
-          <div className={`step-card ${currentStep === 2 ? "active" : currentStep > 2 ? "completed" : ""}`}>
-            <OutlineStep
-              bookId={bookId}
-              outline={outline}
-              isGenerating={isGeneratingOutline}
-              onGenerate={handleGenerateOutline}
-            />
+          {/* Step 2: Outline */}
+          <div className={`step-card ${currentStep === 2 ? "active" : currentStep > 2 ? "completed collapsed" : currentStep < 2 ? "locked" : ""}`}>
+            {currentStep > 2 ? (
+              <div className="step-collapsed">
+                <span className="step-check">✓</span>
+                <span className="step-collapsed-title">Outline generated</span>
+                <span className="step-collapsed-meta">{outline?.lessons.length} lessons</span>
+              </div>
+            ) : (
+              <OutlineStep
+                bookId={bookId}
+                outline={outline}
+                isGenerating={isGeneratingOutline}
+                onGenerate={handleGenerateOutline}
+              />
+            )}
           </div>
 
           {currentStep === 2 && error && (
             <p className="error-message sidebar-error">{error}</p>
+          )}
+
+          {/* Step 3 indicator when active */}
+          {currentStep === 3 && (
+            <div className="step-card active step-lessons">
+              <div className="step-header">
+                <div className="step-number">3</div>
+                <div>
+                  <h2>Create content</h2>
+                  <p className="step-description">
+                    Generate scripts, quizzes, and videos
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
         </aside>
 

@@ -6,4 +6,8 @@ export { LessonList } from "./LessonList";
 export { LessonDetail } from "./LessonDetail";
 export { VideoPlayer } from "./VideoPlayer";
 export { EmptyState } from "./EmptyState";
+export { Tabs, TabPanel } from "./Tabs";
+export type { Tab } from "./Tabs";
+export { MoreMenu } from "./MoreMenu";
+export type { MenuItem } from "./MoreMenu";
 

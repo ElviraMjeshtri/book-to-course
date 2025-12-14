@@ -34,6 +34,9 @@ function App() {
   const [selectedLesson, setSelectedLesson] = useState<LessonOutline | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lessonResources, setLessonResources] = useState<Record<string, LessonResources>>({});
+  
+  // Track which step is expanded (allows going back)
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
 
   const normalizedApiBase = API_BASE_URL.endsWith("/")
     ? API_BASE_URL.slice(0, -1)
@@ -80,9 +83,9 @@ function App() {
     try {
       const res = await uploadBook(selectedFile);
       setBookId(res.book_id);
-      // Extract book title from filename
       const title = selectedFile.name.replace(/\.pdf$/i, "");
       setBookTitle(title);
+      setExpandedStep(null); // Collapse after successful upload
     } catch (err) {
       setError(extractErrorMessage(err, "Failed to upload book. Check backend."));
     } finally {
@@ -105,6 +108,7 @@ function App() {
       if (res.outline.lessons.length > 0) {
         setSelectedLesson(res.outline.lessons[0]);
       }
+      setExpandedStep(null); // Collapse after successful generation
     } catch (err) {
       setError(extractErrorMessage(err, "Failed to generate outline."));
     } finally {
@@ -193,6 +197,7 @@ function App() {
     }
   };
 
+  // Determine current progress step
   const getCurrentStep = () => {
     if (!bookId) return 1;
     if (!outline) return 2;
@@ -201,10 +206,25 @@ function App() {
 
   const currentStep = getCurrentStep();
 
+  // Determine if a step should show expanded content
+  const isStepExpanded = (step: number) => {
+    if (expandedStep === step) return true;
+    if (expandedStep === null && currentStep === step) return true;
+    return false;
+  };
+
+  // Handle clicking on a completed step to expand it
+  const handleStepClick = (step: number) => {
+    if (step < currentStep) {
+      // Completed step - toggle expansion
+      setExpandedStep(expandedStep === step ? null : step);
+    }
+  };
+
   // Truncate book title for display
   const displayTitle = bookTitle
-    ? bookTitle.length > 40
-      ? bookTitle.substring(0, 40) + "..."
+    ? bookTitle.length > 35
+      ? bookTitle.substring(0, 35) + "..."
       : bookTitle
     : null;
 
@@ -235,41 +255,99 @@ function App() {
         {/* Sidebar - Steps */}
         <aside className="app-sidebar">
           {/* Step 1: Upload */}
-          <div className={`step-card ${currentStep === 1 ? "active" : currentStep > 1 ? "completed collapsed" : ""}`}>
-            {currentStep > 1 ? (
+          <div 
+            className={`step-card ${
+              isStepExpanded(1) ? "active" : ""
+            } ${
+              currentStep > 1 && !isStepExpanded(1) ? "completed" : ""
+            } ${
+              currentStep > 1 ? "clickable" : ""
+            }`}
+            onClick={() => currentStep > 1 && handleStepClick(1)}
+          >
+            {currentStep > 1 && !isStepExpanded(1) ? (
               <div className="step-collapsed">
                 <span className="step-check">✓</span>
-                <span className="step-collapsed-title">Book uploaded</span>
-                <span className="step-collapsed-meta">{displayTitle}</span>
+                <div className="step-collapsed-content">
+                  <span className="step-collapsed-title">Book uploaded</span>
+                  <span className="step-collapsed-meta">{displayTitle}</span>
+                </div>
+                <button 
+                  className="step-edit-btn"
+                  onClick={(e) => { e.stopPropagation(); handleStepClick(1); }}
+                  title="Change book"
+                >
+                  Change
+                </button>
               </div>
             ) : (
-              <UploadStep
-                selectedFile={selectedFile}
-                isUploading={isUploading}
-                bookId={bookId}
-                disabled={isGeneratingOutline}
-                error={currentStep === 1 ? error : null}
-                onFileSelect={setSelectedFile}
-                onUpload={handleUpload}
-              />
+              <>
+                <UploadStep
+                  selectedFile={selectedFile}
+                  isUploading={isUploading}
+                  bookId={bookId}
+                  disabled={isGeneratingOutline}
+                  error={currentStep === 1 ? error : null}
+                  onFileSelect={setSelectedFile}
+                  onUpload={handleUpload}
+                />
+                {currentStep > 1 && (
+                  <button 
+                    className="btn btn-secondary btn-sm step-cancel-btn"
+                    onClick={(e) => { e.stopPropagation(); setExpandedStep(null); }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </>
             )}
           </div>
 
           {/* Step 2: Outline */}
-          <div className={`step-card ${currentStep === 2 ? "active" : currentStep > 2 ? "completed collapsed" : currentStep < 2 ? "locked" : ""}`}>
-            {currentStep > 2 ? (
+          <div 
+            className={`step-card ${
+              isStepExpanded(2) ? "active" : ""
+            } ${
+              currentStep > 2 && !isStepExpanded(2) ? "completed" : ""
+            } ${
+              currentStep < 2 ? "locked" : ""
+            } ${
+              currentStep > 2 ? "clickable" : ""
+            }`}
+            onClick={() => currentStep > 2 && handleStepClick(2)}
+          >
+            {currentStep > 2 && !isStepExpanded(2) ? (
               <div className="step-collapsed">
                 <span className="step-check">✓</span>
-                <span className="step-collapsed-title">Outline generated</span>
-                <span className="step-collapsed-meta">{outline?.lessons.length} lessons</span>
+                <div className="step-collapsed-content">
+                  <span className="step-collapsed-title">Outline ready</span>
+                  <span className="step-collapsed-meta">{outline?.course_title}</span>
+                </div>
+                <button 
+                  className="step-edit-btn"
+                  onClick={(e) => { e.stopPropagation(); handleStepClick(2); }}
+                  title="Regenerate outline"
+                >
+                  Edit
+                </button>
               </div>
             ) : (
-              <OutlineStep
-                bookId={bookId}
-                outline={outline}
-                isGenerating={isGeneratingOutline}
-                onGenerate={handleGenerateOutline}
-              />
+              <>
+                <OutlineStep
+                  bookId={bookId}
+                  outline={outline}
+                  isGenerating={isGeneratingOutline}
+                  onGenerate={handleGenerateOutline}
+                />
+                {currentStep > 2 && (
+                  <button 
+                    className="btn btn-secondary btn-sm step-cancel-btn"
+                    onClick={(e) => { e.stopPropagation(); setExpandedStep(null); }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -278,14 +356,14 @@ function App() {
           )}
 
           {/* Step 3 indicator when active */}
-          {currentStep === 3 && (
-            <div className="step-card active step-lessons">
-              <div className="step-header">
+          {currentStep >= 3 && (
+            <div className={`step-card ${currentStep === 3 ? "active" : ""} step-lessons`}>
+              <div className="step-header-compact">
                 <div className="step-number">3</div>
                 <div>
                   <h2>Create content</h2>
                   <p className="step-description">
-                    Generate scripts, quizzes, and videos
+                    Select a lesson to generate content
                   </p>
                 </div>
               </div>

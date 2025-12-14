@@ -1,33 +1,68 @@
-import "./index.css";
-import { Composition } from "remotion";
-import { LessonVideo } from "./LessonVideo";
-import type { LessonVideoPlan, LessonVideoProps } from "./types";
+import './index.css';
+import { Composition } from 'remotion';
+import { LessonVideo } from './LessonVideo';
+import type { LessonVideoPlan, LessonVideoProps } from './types';
+
+// Load Google Fonts via @remotion/google-fonts
+import { loadFont as loadInter } from '@remotion/google-fonts/Inter';
+import { loadFont as loadJetBrainsMono } from '@remotion/google-fonts/JetBrainsMono';
+
+// Load fonts once at composition level
+const { fontFamily: interFamily } = loadInter();
+const { fontFamily: jetbrainsFamily } = loadJetBrainsMono();
+
+// Inject font families into CSS custom properties
+if (typeof document !== 'undefined') {
+  document.documentElement.style.setProperty('--font-sans', interFamily);
+  document.documentElement.style.setProperty('--font-mono', jetbrainsFamily);
+}
 
 const fps = 30;
 
 const samplePlan: LessonVideoPlan = {
-  lessonId: "demo-1",
-  title: "Sample Lesson Overview",
+  lessonId: 'demo-1',
+  title: 'Introduction to Python Programming',
   totalDurationSec: 20,
   slides: [
     {
-      title: "Welcome",
-      bullets: ["Introduce the course", "Set expectations", "Share outcomes"],
+      title: 'Welcome to Python',
+      bullets: [
+        'Learn the fundamentals of Python programming',
+        'Build real-world applications',
+        'Master data structures and algorithms',
+        'Write clean, maintainable code',
+      ],
       narration:
-        "Welcome to this sample lesson. We'll outline what you will learn and the goals for this journey.",
+        'Welcome to this comprehensive Python course. We will cover everything from basics to advanced topics.',
     },
     {
-      title: "Key Concepts",
-      bullets: ["Variables & Types", "Control Flow", "Functions"],
-      codeSnippet: `def greet(name: str) -> None:\n    print(f"Hello, {name}")`,
+      title: 'Core Concepts',
+      bullets: [
+        'Variables and data types',
+        'Control flow statements',
+        'Functions and modules',
+        'Object-oriented programming',
+      ],
+      codeSnippet: `def greet(name: str) -> str:
+    """Return a greeting message."""
+    return f"Hello, {name}!"
+
+# Usage
+message = greet("World")
+print(message)`,
       narration:
-        "First we cover fundamental programming concepts such as variables, control flow, and functions with a short code sample.",
+        'First, we will cover fundamental programming concepts including variables, control flow, and functions.',
     },
     {
-      title: "Next Steps",
-      bullets: ["Practice exercises", "Join the community", "Preview lesson 2"],
+      title: 'Next Steps',
+      bullets: [
+        'Complete the practice exercises',
+        'Join our developer community',
+        'Preview the next lesson',
+        'Build your first project',
+      ],
       narration:
-        "Finally, you'll practice the material, connect with peers, and preview what's coming next.",
+        'Finally, practice the material, connect with peers, and start building your own projects.',
     },
   ],
   slideTimings: [
@@ -41,27 +76,29 @@ export const RemotionRoot: React.FC = () => {
   const durationInFrames = fps * samplePlan.totalDurationSec;
   const defaultProps: LessonVideoProps = {
     plan: samplePlan,
-    audioSrc: "/demo/audio.mp3",
-    avatarSrc: "/demo/avatar.mp4",
+    audioSrc: '/demo/audio.mp3',
+    // avatarSrc is optional - uncomment if you have a demo avatar video
+    // avatarSrc: '/demo/avatar.mp4',
   };
 
   return (
-  <Composition
-    id="LessonVideo"
-    component={LessonVideo}
+    <Composition
+      id="LessonVideo"
+      component={LessonVideo}
       durationInFrames={durationInFrames}
-    fps={fps}
-    width={1920}
-    height={1080}
+      fps={fps}
+      width={1920}
+      height={1080}
       defaultProps={defaultProps}
       calculateMetadata={async ({ props }) => {
         const dynamicDuration =
-          Math.max(1, Math.round(props.plan.totalDurationSec * fps)) || durationInFrames;
+          Math.max(1, Math.round(props.plan.totalDurationSec * fps)) ||
+          durationInFrames;
         return {
           durationInFrames: dynamicDuration,
           props,
         };
-    }}
-  />
-);
+      }}
+    />
+  );
 };

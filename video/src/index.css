@@ -1,20 +1,33 @@
 :root {
-  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+  
+  font-family: var(--font-sans);
   color: #f8fafc;
-  background-color: #020617;
+  background-color: #0a0f1a;
   line-height: 1.4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
   margin: 0;
-  font-family: inherit;
-  background-color: #020617;
-  color: inherit;
+  font-family: var(--font-sans);
+  background-color: #0a0f1a;
+  color: #f8fafc;
+}
+
+/* Ensure code blocks use mono font */
+pre, code {
+  font-family: var(--font-mono);
 }

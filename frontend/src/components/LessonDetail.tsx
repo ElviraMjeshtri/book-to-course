@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { StatusBadge, type BadgeVariant } from "./StatusBadge";
 import { VideoPlayer } from "./VideoPlayer";
 import { Tabs, TabPanel, type Tab } from "./Tabs";
 import { MoreMenu, type MenuItem } from "./MoreMenu";
@@ -41,16 +40,36 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
   const hasScript = !!resources?.script;
   const hasQuiz = resources?.quiz && resources.quiz.length > 0;
   const hasVideo = !!videoUrl;
-  const isLoading = resources?.loading?.script || resources?.loading?.quiz || resources?.loading?.video;
+  
+  // Loading states
+  const isLoadingScript = !!resources?.loading?.script;
+  const isLoadingQuiz = !!resources?.loading?.quiz;
+  const isLoadingVideo = !!resources?.loading?.video;
+  const isLoading = isLoadingScript || isLoadingQuiz || isLoadingVideo;
+
+  // Get loading message for banner
+  const getLoadingMessage = (): string | null => {
+    if (isLoadingScript) return "Generating lesson script...";
+    if (isLoadingQuiz) return "Generating quiz questions...";
+    if (isLoadingVideo) return "Generating video (this may take a few minutes)...";
+    return null;
+  };
+
+  const loadingMessage = getLoadingMessage();
 
   // Determine primary CTA
   const getPrimaryCTA = (): { label: string; action: () => void; loading: boolean } | null => {
-    if (resources?.loading?.video) {
+    // If anything is loading, show that as the primary state
+    if (isLoadingVideo) {
       return { label: "Generating Video...", action: () => {}, loading: true };
     }
-    if (resources?.loading?.script) {
+    if (isLoadingScript) {
       return { label: "Generating Content...", action: () => {}, loading: true };
     }
+    if (isLoadingQuiz) {
+      return { label: "Generating Quiz...", action: () => {}, loading: true };
+    }
+    // Otherwise show the next action
     if (!hasScript) {
       return { label: "Generate Lesson Content", action: onGenerateScript, loading: false };
     }
@@ -70,7 +89,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       label: "Regenerate Script",
       icon: "📝",
       onClick: onGenerateScript,
-      disabled: !!resources?.loading?.script,
+      disabled: isLoading,
     });
   }
   if (hasQuiz) {
@@ -79,7 +98,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       label: "Regenerate Quiz",
       icon: "❓",
       onClick: onGenerateQuiz,
-      disabled: !!resources?.loading?.quiz,
+      disabled: isLoading,
     });
   }
   if (!hasQuiz && hasScript) {
@@ -88,7 +107,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       label: "Generate Quiz",
       icon: "❓",
       onClick: onGenerateQuiz,
-      disabled: !!resources?.loading?.quiz,
+      disabled: isLoading,
     });
   }
   if (hasVideo) {
@@ -97,7 +116,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       label: "Regenerate Video",
       icon: "🎬",
       onClick: onGenerateVideo,
-      disabled: !!resources?.loading?.video,
+      disabled: isLoading,
     });
   }
 
@@ -105,14 +124,27 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
   const tabs: Tab[] = [
     { id: "overview", label: "Overview", icon: "📋" },
   ];
-  if (hasScript) {
-    tabs.push({ id: "script", label: "Script", icon: "📝" });
+  if (hasScript || isLoadingScript) {
+    tabs.push({ 
+      id: "script", 
+      label: isLoadingScript ? "Script..." : "Script", 
+      icon: "📝" 
+    });
   }
-  if (hasQuiz) {
-    tabs.push({ id: "quiz", label: "Quiz", icon: "❓", badge: resources?.quiz?.length });
+  if (hasQuiz || isLoadingQuiz) {
+    tabs.push({ 
+      id: "quiz", 
+      label: isLoadingQuiz ? "Quiz..." : "Quiz", 
+      icon: "❓", 
+      badge: hasQuiz ? resources?.quiz?.length : undefined 
+    });
   }
-  if (hasVideo) {
-    tabs.push({ id: "video", label: "Video", icon: "🎬" });
+  if (hasVideo || isLoadingVideo) {
+    tabs.push({ 
+      id: "video", 
+      label: isLoadingVideo ? "Video..." : "Video", 
+      icon: "🎬" 
+    });
   }
 
   // Collect all errors
@@ -141,9 +173,17 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
               {primaryCTA.label}
             </button>
           )}
-          {moreMenuItems.length > 0 && <MoreMenu items={moreMenuItems} />}
+          {moreMenuItems.length > 0 && !isLoading && <MoreMenu items={moreMenuItems} />}
         </div>
       </div>
+
+      {/* Loading Banner */}
+      {loadingMessage && (
+        <div className="loading-banner">
+          <span className="spinner" />
+          <span>{loadingMessage}</span>
+        </div>
+      )}
 
       {/* Error Banner */}
       {errors.length > 0 && (
@@ -172,16 +212,22 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
 
           {/* Status indicators */}
           <div className="content-status">
-            <div className={`status-item ${hasScript ? "ready" : ""}`}>
-              <span className="status-icon">{hasScript ? "✓" : "○"}</span>
+            <div className={`status-item ${hasScript ? "ready" : ""} ${isLoadingScript ? "loading" : ""}`}>
+              <span className="status-icon">
+                {isLoadingScript ? <span className="spinner-sm" /> : hasScript ? "✓" : "○"}
+              </span>
               <span>Script</span>
             </div>
-            <div className={`status-item ${hasQuiz ? "ready" : ""}`}>
-              <span className="status-icon">{hasQuiz ? "✓" : "○"}</span>
+            <div className={`status-item ${hasQuiz ? "ready" : ""} ${isLoadingQuiz ? "loading" : ""}`}>
+              <span className="status-icon">
+                {isLoadingQuiz ? <span className="spinner-sm" /> : hasQuiz ? "✓" : "○"}
+              </span>
               <span>Quiz</span>
             </div>
-            <div className={`status-item ${hasVideo ? "ready" : ""}`}>
-              <span className="status-icon">{hasVideo ? "✓" : "○"}</span>
+            <div className={`status-item ${hasVideo ? "ready" : ""} ${isLoadingVideo ? "loading" : ""}`}>
+              <span className="status-icon">
+                {isLoadingVideo ? <span className="spinner-sm" /> : hasVideo ? "✓" : "○"}
+              </span>
               <span>Video</span>
             </div>
           </div>
@@ -189,7 +235,13 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       </TabPanel>
 
       <TabPanel id="script" activeTab={activeTab}>
-        {resources?.script ? (
+        {isLoadingScript ? (
+          <div className="loading-tab">
+            <span className="spinner" />
+            <p>Generating lesson script...</p>
+            <p className="loading-hint">This usually takes 10-20 seconds</p>
+          </div>
+        ) : resources?.script ? (
           <div className="script-content">
             <div className="script-meta">
               <span>{resources.script.length.toLocaleString()} characters</span>
@@ -208,7 +260,13 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       </TabPanel>
 
       <TabPanel id="quiz" activeTab={activeTab}>
-        {hasQuiz ? (
+        {isLoadingQuiz ? (
+          <div className="loading-tab">
+            <span className="spinner" />
+            <p>Generating quiz questions...</p>
+            <p className="loading-hint">Creating 4 multiple-choice questions</p>
+          </div>
+        ) : hasQuiz ? (
           <div className="quiz-content">
             {resources?.quiz?.map((q, idx) => (
               <div key={idx} className="quiz-item">
@@ -236,7 +294,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
         ) : (
           <div className="empty-tab">
             <p>No quiz generated yet.</p>
-            <button className="btn btn-secondary" onClick={onGenerateQuiz}>
+            <button className="btn btn-secondary" onClick={onGenerateQuiz} disabled={isLoading}>
               Generate Quiz
             </button>
           </div>
@@ -244,7 +302,13 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
       </TabPanel>
 
       <TabPanel id="video" activeTab={activeTab}>
-        {videoUrl ? (
+        {isLoadingVideo ? (
+          <div className="loading-tab">
+            <span className="spinner" />
+            <p>Generating video...</p>
+            <p className="loading-hint">This may take 2-5 minutes. You can switch tabs while waiting.</p>
+          </div>
+        ) : videoUrl ? (
           <VideoPlayer
             src={videoUrl}
             title={lesson.title}
@@ -254,7 +318,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
           <div className="empty-tab">
             <p>No video generated yet.</p>
             {hasScript ? (
-              <button className="btn btn-primary" onClick={onGenerateVideo}>
+              <button className="btn btn-primary" onClick={onGenerateVideo} disabled={isLoading}>
                 Generate Video
               </button>
             ) : (
@@ -266,3 +330,4 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
     </div>
   );
 };
+

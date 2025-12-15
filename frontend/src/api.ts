@@ -180,3 +180,79 @@ export async function testConnection(): Promise<TestConnectionResponse> {
   const response = await api.post<TestConnectionResponse>("/config/test");
   return response.data;
 }
+
+// ============================================================================
+// TTS Configuration API
+// ============================================================================
+
+export interface TTSModelInfo {
+  name: string;
+  description: string;
+}
+
+export interface TTSProviderInfo {
+  name: string;
+  description: string;
+  cost: string;
+  models: Record<string, TTSModelInfo>;
+  voices: Record<string, string>;
+  has_api_key: boolean;
+}
+
+export interface AvailableTTSResponse {
+  [provider: string]: TTSProviderInfo;
+}
+
+export interface CurrentTTSConfigResponse {
+  provider: string;
+  model: string;
+  voice: string;
+  provider_info: {
+    name: string;
+    description: string;
+  };
+  has_api_key: boolean;
+}
+
+export interface UpdateTTSConfigRequest {
+  provider: string;
+  model: string;
+  voice: string;
+  api_key?: string;
+}
+
+export interface UpdateTTSConfigResponse {
+  success: boolean;
+  message: string;
+  config: CurrentTTSConfigResponse;
+}
+
+export interface TestTTSConnectionResponse {
+  success: boolean;
+  message: string;
+  provider: string;
+  model: string;
+  voice: string;
+}
+
+export async function getAvailableTTS(): Promise<AvailableTTSResponse> {
+  const response = await api.get<AvailableTTSResponse>("/config/tts");
+  return response.data;
+}
+
+export async function getCurrentTTSConfig(): Promise<CurrentTTSConfigResponse> {
+  const response = await api.get<CurrentTTSConfigResponse>("/config/tts/current");
+  return response.data;
+}
+
+export async function updateTTSConfig(
+  request: UpdateTTSConfigRequest
+): Promise<UpdateTTSConfigResponse> {
+  const response = await api.post<UpdateTTSConfigResponse>("/config/tts", request);
+  return response.data;
+}
+
+export async function testTTSConnection(): Promise<TestTTSConnectionResponse> {
+  const response = await api.post<TestTTSConnectionResponse>("/config/tts/test");
+  return response.data;
+}

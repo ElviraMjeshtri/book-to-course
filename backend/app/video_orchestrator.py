@@ -14,15 +14,13 @@ from pydantic import BaseModel
 from .lesson_content import LessonContent, load_lesson_content
 from .pdf_utils import load_book_text, load_book_images
 from .llm_client import llm_client
+from .tts_client import tts_client
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "books"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VIDEO_DIR = REPO_ROOT / "video"
 PUBLIC_ASSETS_DIR = VIDEO_DIR / "public"
 GENERATED_ASSETS_DIR = PUBLIC_ASSETS_DIR / "generated"
-
-# OpenAI client specifically for TTS (text-to-speech) - provider-specific feature
-openai_client = OpenAI()
 
 
 class Slide(BaseModel):
@@ -49,16 +47,17 @@ class LessonVideoPlan(BaseModel):
 
 
 def synthesize_tts(text: str, out_path: Path) -> None:
+    """
+    Synthesize text-to-speech using the configured TTS provider.
+    Uses tts_client which supports multiple TTS providers.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     temp_mp3 = out_path.with_suffix(".tmp.mp3")
-    # TTS is OpenAI-specific, use openai_client directly
-    with openai_client.audio.speech.with_streaming_response.create(
-        model="tts-1",
-        voice="alloy",
-        input=text,
-    ) as response:
-        response.stream_to_file(temp_mp3)
 
+    # Use configurable TTS client
+    tts_client.synthesize_speech(text=text, output_path=temp_mp3)
+
+    # Convert to WAV format for consistent audio processing
     subprocess.run(
         [
             "ffmpeg",
@@ -75,6 +74,8 @@ def synthesize_tts(text: str, out_path: Path) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    # Clean up temporary file
     if temp_mp3.exists():
         temp_mp3.unlink()
 

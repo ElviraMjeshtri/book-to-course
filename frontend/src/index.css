@@ -1536,10 +1536,42 @@ body {
   color: var(--color-text);
 }
 
+/* Tab Styles */
+.config-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-neutral-light);
+}
+
+.config-tab {
+  flex: 1;
+  padding: 1rem 1.5rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  border-bottom: 2px solid transparent;
+}
+
+.config-tab:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.config-tab.active {
+  color: var(--color-primary);
+  background: var(--color-surface);
+  border-bottom-color: var(--color-primary);
+}
+
 .config-panel-body {
   padding: 1.5rem;
   overflow-y: auto;
-  max-height: calc(90vh - 5rem);
+  max-height: calc(90vh - 10rem);
 }
 
 .current-config {

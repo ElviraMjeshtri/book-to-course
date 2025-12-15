@@ -1,9 +1,9 @@
 """
 Unified LLM client wrapper
-Abstracts API calls to OpenAI, Anthropic, and Google Gemini
+Abstracts API calls to OpenAI, Anthropic, Google Gemini, DeepSeek, and Mistral AI
 """
 from typing import List, Dict, Any, Optional
-from .config import config, Provider
+from .config import config
 
 
 class LLMClient:
@@ -46,6 +46,10 @@ class LLMClient:
             return self._anthropic_completion(messages, temperature, max_tokens, **kwargs)
         elif provider == "gemini":
             return self._gemini_completion(messages, temperature, max_tokens, **kwargs)
+        elif provider == "deepseek":
+            return self._deepseek_completion(messages, temperature, max_tokens, **kwargs)
+        elif provider == "mistral":
+            return self._mistral_completion(messages, temperature, max_tokens, **kwargs)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
@@ -177,6 +181,75 @@ class LLMClient:
         )
 
         return response.text
+
+    def _deepseek_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+        **kwargs
+    ) -> str:
+        """DeepSeek API completion (OpenAI-compatible)"""
+        from openai import OpenAI
+
+        # DeepSeek uses OpenAI-compatible API
+        client = OpenAI(
+            api_key=config.api_key,
+            base_url="https://api.deepseek.com"
+        )
+
+        params: Dict[str, Any] = {
+            "model": config.model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+
+        # Add any additional kwargs
+        params.update(kwargs)
+
+        response = client.chat.completions.create(**params)
+        return response.choices[0].message.content or ""
+
+    def _mistral_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+        **kwargs
+    ) -> str:
+        """Mistral AI API completion"""
+        from mistralai import Mistral
+
+        client = Mistral(api_key=config.api_key)
+
+        # Convert messages to Mistral format
+        mistral_messages = []
+        for msg in messages:
+            mistral_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+
+        params: Dict[str, Any] = {
+            "model": config.model,
+            "messages": mistral_messages,
+            "temperature": temperature,
+        }
+
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+
+        # Add any additional kwargs
+        params.update(kwargs)
+
+        response = client.chat.complete(**params)
+
+        if response.choices and len(response.choices) > 0:
+            return response.choices[0].message.content or ""
+        return ""
 
     def test_connection(self) -> Dict[str, Any]:
         """

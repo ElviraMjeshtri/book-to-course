@@ -7,3 +7,7 @@ openai
 requests
 pillow
 anthropic
+google-generativeai
+elevenlabs
+google-cloud-texttospeech
+mistralai

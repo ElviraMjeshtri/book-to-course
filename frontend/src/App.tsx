@@ -15,6 +15,7 @@ import { OutlineStep } from "./components/OutlineStep";
 import { LessonList } from "./components/LessonList";
 import { LessonDetail } from "./components/LessonDetail";
 import { EmptyState } from "./components/EmptyState";
+import ConfigPanel from "./components/ConfigPanel";
 
 type LessonResources = {
   script?: { text: string; length: number };
@@ -34,9 +35,12 @@ function App() {
   const [selectedLesson, setSelectedLesson] = useState<LessonOutline | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lessonResources, setLessonResources] = useState<Record<string, LessonResources>>({});
-  
+
   // Track which step is expanded (allows going back)
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
+
+  // Configuration panel state
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   const normalizedApiBase = API_BASE_URL.endsWith("/")
     ? API_BASE_URL.slice(0, -1)
@@ -247,8 +251,18 @@ function App() {
               {outline.lessons.length} lessons
             </span>
           )}
+          <button
+            className="config-button"
+            onClick={() => setIsConfigOpen(true)}
+            title="Configure AI Model"
+          >
+            ⚙️ Configuration
+          </button>
         </div>
       </header>
+
+      {/* Configuration Panel */}
+      <ConfigPanel isOpen={isConfigOpen} onClose={() => setIsConfigOpen(false)} />
 
       {/* Main Layout */}
       <main className="app-main">

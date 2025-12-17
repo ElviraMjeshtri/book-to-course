@@ -53,11 +53,20 @@ cd ../frontend
 npm install
 ```
 
-If your backend isn’t running on `http://localhost:8000`, add a `.env` file under `frontend/`:
+If your backend isn't running on `http://localhost:8000`, add a `.env` file under `frontend/`:
 
 ```
 VITE_API_BASE_URL=http://your-backend-host:port
 ```
+
+### 4. Video Dependencies Setup
+
+```bash
+cd ../video
+npm install
+```
+
+This installs Remotion and other dependencies required for video generation.
 
 ## Running the Stack
 

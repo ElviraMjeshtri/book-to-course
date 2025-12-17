@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +33,9 @@ from .video_enhancer import (
     VideoEnhancerError,
 )
 from .video_orchestrator import generate_lesson_video
+from .config import config, AVAILABLE_MODELS, AVAILABLE_TTS, LLMProvider, TTSProvider
+from .llm_client import llm_client
+from .tts_client import tts_client
 
 app = FastAPI(
     title="Book-to-Video Course Generator",
@@ -43,6 +46,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -64,6 +68,19 @@ class CodeSnippet(BaseModel):
 class EnhanceRequest(BaseModel):
     code_snippets: List[CodeSnippet]
     layout: str = "avatar-corner"
+
+
+class UpdateConfigRequest(BaseModel):
+    provider: LLMProvider
+    model: str
+    api_key: Optional[str] = None
+
+
+class UpdateTTSConfigRequest(BaseModel):
+    provider: TTSProvider
+    model: str
+    voice: str
+    api_key: Optional[str] = None
 
 
 @app.get("/health")
@@ -366,3 +383,123 @@ async def check_ffmpeg_status() -> Dict[str, Any]:
         "message": "FFmpeg is ready!" if is_installed else "FFmpeg not found",
         "enhancement_available": is_installed
     }
+
+
+# ============================================================================
+# Configuration Endpoints
+# ============================================================================
+
+@app.get("/config/models")
+async def get_available_models() -> Dict[str, Any]:
+    """Get all available AI models grouped by provider"""
+    return config.get_available_llm_models()
+
+
+@app.get("/config/current")
+async def get_current_config() -> Dict[str, Any]:
+    """Get current AI model configuration"""
+    return config.get_current_llm_config()
+
+
+@app.post("/config/model")
+async def update_model_config(request: UpdateConfigRequest) -> Dict[str, Any]:
+    """
+    Update AI model configuration
+
+    Body:
+        provider: AI provider (openai, anthropic, gemini)
+        model: Model ID
+        api_key: Optional API key (if not provided, uses existing or .env)
+    """
+    try:
+        success = config.update_llm_config(
+            provider=request.provider,
+            model=request.model,
+            api_key=request.api_key
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": f"Configuration updated to {request.provider} - {request.model}",
+                "config": config.get_current_llm_config()
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update configuration")
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating configuration: {str(e)}")
+
+
+@app.post("/config/test")
+async def test_connection() -> Dict[str, Any]:
+    """Test the current AI model configuration"""
+    result = llm_client.test_connection()
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
+# ============================================================================
+# TTS Configuration Endpoints
+# ============================================================================
+
+@app.get("/config/tts")
+async def get_available_tts() -> Dict[str, Any]:
+    """Get all available TTS providers"""
+    return config.get_available_tts()
+
+
+@app.get("/config/tts/current")
+async def get_current_tts_config() -> Dict[str, Any]:
+    """Get current TTS configuration"""
+    return config.get_current_tts_config()
+
+
+@app.post("/config/tts")
+async def update_tts_config(request: UpdateTTSConfigRequest) -> Dict[str, Any]:
+    """
+    Update TTS configuration
+
+    Body:
+        provider: TTS provider (openai, elevenlabs, google_tts)
+        model: Model ID
+        voice: Voice ID
+        api_key: Optional API key (if not provided, uses existing or shared)
+    """
+    try:
+        success = config.update_tts_config(
+            provider=request.provider,
+            model=request.model,
+            voice=request.voice,
+            api_key=request.api_key
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": f"TTS configuration updated to {request.provider} - {request.voice}",
+                "config": config.get_current_tts_config()
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update TTS configuration")
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating TTS configuration: {str(e)}")
+
+
+@app.post("/config/tts/test")
+async def test_tts_connection() -> Dict[str, Any]:
+    """Test the current TTS configuration"""
+    result = tts_client.test_connection()
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result

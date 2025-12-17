@@ -1,15 +1,7 @@
 import json
-import os
 from typing import Any, Dict
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-client = OpenAI(api_key=OPENAI_API_KEY)
+from .llm_client import llm_client
 
 
 OUTLINE_SYSTEM_PROMPT = """
@@ -49,9 +41,6 @@ def generate_course_outline(book_text: str, book_title: str | None = None) -> Di
     Call the LLM to generate a course outline JSON.
     We truncate book_text to avoid token overflow in v1.
     """
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
     # truncate large books for v1 (you can replace with RAG later)
     max_chars = 20000
     truncated_text = book_text[:max_chars]
@@ -61,16 +50,13 @@ def generate_course_outline(book_text: str, book_title: str | None = None) -> Di
         user_prompt += f"Book title: {book_title}\n\n"
     user_prompt += f"Book text (truncated):\n{truncated_text}"
 
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+    content = llm_client.chat_completion(
         messages=[
             {"role": "system", "content": OUTLINE_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.4,
     )
-
-    content = response.choices[0].message.content
 
     try:
         outline = json.loads(content)

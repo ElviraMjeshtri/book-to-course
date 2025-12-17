@@ -61,6 +61,50 @@ export interface GenerateVideoResponse {
   lesson_index: number;
 }
 
+export interface ModelInfo {
+  name: string;
+  description: string;
+  cost: string;
+  speed: string;
+}
+
+export interface ProviderModels {
+  name: string;
+  has_api_key: boolean;
+  models: Record<string, ModelInfo>;
+}
+
+export interface AvailableModelsResponse {
+  [provider: string]: ProviderModels;
+}
+
+export interface CurrentConfigResponse {
+  provider: string;
+  model: string;
+  model_info: ModelInfo;
+  has_api_key: boolean;
+}
+
+export interface UpdateConfigRequest {
+  provider: string;
+  model: string;
+  api_key?: string;
+}
+
+export interface UpdateConfigResponse {
+  success: boolean;
+  message: string;
+  config: CurrentConfigResponse;
+}
+
+export interface TestConnectionResponse {
+  success: boolean;
+  message: string;
+  response?: string;
+  provider: string;
+  model: string;
+}
+
 export async function uploadBook(file: File): Promise<UploadBookResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -111,3 +155,104 @@ export async function generateLessonVideo(
   return response.data;
 }
 
+// ============================================================================
+// Configuration API
+// ============================================================================
+
+export async function getAvailableModels(): Promise<AvailableModelsResponse> {
+  const response = await api.get<AvailableModelsResponse>("/config/models");
+  return response.data;
+}
+
+export async function getCurrentConfig(): Promise<CurrentConfigResponse> {
+  const response = await api.get<CurrentConfigResponse>("/config/current");
+  return response.data;
+}
+
+export async function updateModelConfig(
+  request: UpdateConfigRequest
+): Promise<UpdateConfigResponse> {
+  const response = await api.post<UpdateConfigResponse>("/config/model", request);
+  return response.data;
+}
+
+export async function testConnection(): Promise<TestConnectionResponse> {
+  const response = await api.post<TestConnectionResponse>("/config/test");
+  return response.data;
+}
+
+// ============================================================================
+// TTS Configuration API
+// ============================================================================
+
+export interface TTSModelInfo {
+  name: string;
+  description: string;
+}
+
+export interface TTSProviderInfo {
+  name: string;
+  description: string;
+  cost: string;
+  models: Record<string, TTSModelInfo>;
+  voices: Record<string, string>;
+  has_api_key: boolean;
+}
+
+export interface AvailableTTSResponse {
+  [provider: string]: TTSProviderInfo;
+}
+
+export interface CurrentTTSConfigResponse {
+  provider: string;
+  model: string;
+  voice: string;
+  provider_info: {
+    name: string;
+    description: string;
+  };
+  has_api_key: boolean;
+}
+
+export interface UpdateTTSConfigRequest {
+  provider: string;
+  model: string;
+  voice: string;
+  api_key?: string;
+}
+
+export interface UpdateTTSConfigResponse {
+  success: boolean;
+  message: string;
+  config: CurrentTTSConfigResponse;
+}
+
+export interface TestTTSConnectionResponse {
+  success: boolean;
+  message: string;
+  provider: string;
+  model: string;
+  voice: string;
+}
+
+export async function getAvailableTTS(): Promise<AvailableTTSResponse> {
+  const response = await api.get<AvailableTTSResponse>("/config/tts");
+  return response.data;
+}
+
+export async function getCurrentTTSConfig(): Promise<CurrentTTSConfigResponse> {
+  const response = await api.get<CurrentTTSConfigResponse>("/config/tts/current");
+  return response.data;
+}
+
+export async function updateTTSConfig(
+  request: UpdateTTSConfigRequest
+): Promise<UpdateTTSConfigResponse> {
+  const response = await api.post<UpdateTTSConfigResponse>("/config/tts", request);
+  return response.data;
+}
+
+export async function testTTSConnection(): Promise<TestTTSConnectionResponse> {
+  const response = await api.post<TestTTSConnectionResponse>("/config/tts/test");
+  return response.data;
+}

@@ -155,6 +155,48 @@ export async function generateLessonVideo(
   return response.data;
 }
 
+export async function refineScript(
+  bookId: string,
+  lessonId: string,
+  message: string,
+  currentScript: string
+): Promise<ScriptResponse> {
+  const response = await api.post<ScriptResponse>(
+    `/books/${bookId}/lessons/${lessonId}/script/refine`,
+    { message, current_script: currentScript }
+  );
+  return response.data;
+}
+
+export interface VideoPlanResponse {
+  book_id: string;
+  lesson_id: string;
+  plan: any;
+  message?: string;
+}
+
+export async function getVideoPlan(
+  bookId: string,
+  lessonId: string
+): Promise<VideoPlanResponse> {
+  const response = await api.get<VideoPlanResponse>(
+    `/books/${bookId}/lessons/${lessonId}/video/plan`
+  );
+  return response.data;
+}
+
+export async function refineVideoPlan(
+  bookId: string,
+  lessonId: string,
+  instruction: string
+): Promise<VideoPlanResponse> {
+  const response = await api.post<VideoPlanResponse>(
+    `/books/${bookId}/lessons/${lessonId}/video/refine`,
+    { instruction }
+  );
+  return response.data;
+}
+
 // ============================================================================
 // Configuration API
 // ============================================================================

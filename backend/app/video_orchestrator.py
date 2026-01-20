@@ -988,21 +988,48 @@ def build_audio_and_timings_for_plan(
     return plan, final_audio_path
 
 
-def generate_lesson_video(book_id: str, lesson_index: int) -> Path:
+def load_video_plan(book_id: str, lesson_id: str) -> Optional[LessonVideoPlan]:
+    """Load an existing video plan from disk."""
+    plan_path = DATA_DIR / f"{book_id}_{lesson_id}_plan.json"
+    if not plan_path.exists():
+        return None
+    try:
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+        return LessonVideoPlan(**data)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"⚠️ Failed to load plan: {e}")
+        return None
+
+
+def save_video_plan(book_id: str, lesson_id: str, plan: LessonVideoPlan) -> None:
+    """Save a video plan to disk."""
+    plan_path = DATA_DIR / f"{book_id}_{lesson_id}_plan.json"
+    plan_path.write_text(json.dumps(plan.model_dump(), indent=2), encoding="utf-8")
+
+
+def generate_lesson_video(book_id: str, lesson_index: int, custom_plan: Optional[LessonVideoPlan] = None) -> Path:
     book_dir = DATA_DIR / book_id
     book_dir.mkdir(parents=True, exist_ok=True)
 
-    plan, lesson_meta = _build_plan(book_id, lesson_index)
-    script_text = _load_script(book_id, plan.lessonId)
-    _apply_narrations(plan.slides, script_text)
+    # Use custom plan if provided, otherwise build from scratch
+    if custom_plan:
+        plan = custom_plan
+        lesson_meta = None
+    else:
+        plan, lesson_meta = _build_plan(book_id, lesson_index)
+        script_text = _load_script(book_id, plan.lessonId)
+        _apply_narrations(plan.slides, script_text)
 
-    # Match book images to slides
-    book_images = load_book_images(book_id)
-    if book_images:
-        print(f"📷 Found {len(book_images)} images, matching to slides...")
-        _match_images_to_slides(plan.slides, book_images, plan.title)
-        # Copy matched images to Remotion public folder
-        _copy_matched_images_to_public(plan.slides, book_id)
+        # Match book images to slides
+        book_images = load_book_images(book_id)
+        if book_images:
+            print(f"📷 Found {len(book_images)} images, matching to slides...")
+            _match_images_to_slides(plan.slides, book_images, plan.title)
+            # Copy matched images to Remotion public folder
+            _copy_matched_images_to_public(plan.slides, book_id)
+
+        # Save the generated plan for future refinement
+        save_video_plan(book_id, plan.lessonId, plan)
 
     plan, final_audio_path = build_audio_and_timings_for_plan(plan, book_dir)
     audio_public = _copy_to_public(final_audio_path, book_id=book_id)

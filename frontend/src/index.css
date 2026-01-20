@@ -1726,3 +1726,74 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ========================================
+   Chat Panel
+   ======================================== */
+
+.chat-panel {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.chat-header h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.chat-icon {
+  font-size: 1.25rem;
+}
+
+.chat-hint {
+  margin: 0 0 var(--space-md);
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.chat-form {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.chat-input {
+  flex: 1;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  background: var(--color-surface);
+  transition: border-color 0.2s;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.chat-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ========================================
+   Video Content
+   ======================================== */
+
+.video-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}

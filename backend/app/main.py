@@ -32,7 +32,7 @@ from .video_enhancer import (
     check_ffmpeg_installed,
     VideoEnhancerError,
 )
-from .video_orchestrator import generate_lesson_video
+from .video_orchestrator import generate_lesson_video, load_video_plan, save_video_plan, LessonVideoPlan
 from .config import config, AVAILABLE_MODELS, AVAILABLE_TTS, LLMProvider, TTSProvider
 from .llm_client import llm_client
 from .tts_client import tts_client
@@ -81,6 +81,15 @@ class UpdateTTSConfigRequest(BaseModel):
     model: str
     voice: str
     api_key: Optional[str] = None
+
+
+class RefineScriptRequest(BaseModel):
+    message: str
+    current_script: str
+
+
+class RefineVideoPlanRequest(BaseModel):
+    instruction: str
 
 
 @app.get("/health")
@@ -212,6 +221,31 @@ async def generate_script(book_id: str, lesson_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to generate script: {e}")
 
 
+@app.post("/books/{book_id}/lessons/{lesson_id}/script/refine")
+async def refine_script(book_id: str, lesson_id: str, request: RefineScriptRequest) -> Dict[str, Any]:
+    """Refine an existing script based on user feedback"""
+    try:
+        messages = [
+            {"role": "system", "content": "You are an expert instructional designer. Refine the following video script based on the user's feedback. Keep the same structure and tone, but apply the requested changes. Return only the refined script, no additional commentary."},
+            {"role": "user", "content": f"Current script:\n\n{request.current_script}\n\nUser feedback: {request.message}\n\nRefined script:"}
+        ]
+
+        refined_script = llm_client.chat_completion(messages=messages, temperature=0.7)
+
+        # Save refined version
+        script_path = BOOKS_DIR / f"{book_id}_{lesson_id}_script.txt"
+        script_path.write_text(refined_script, encoding="utf-8")
+
+        return {
+            "book_id": book_id,
+            "lesson_id": lesson_id,
+            "script": refined_script,
+            "script_length": len(refined_script),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refine script: {e}")
+
+
 @app.post("/books/{book_id}/lessons/{lesson_id}/quiz")
 async def generate_quiz(book_id: str, lesson_id: str) -> Dict[str, Any]:
     """Generate quiz questions for a specific lesson"""
@@ -252,8 +286,23 @@ async def generate_quiz(book_id: str, lesson_id: str) -> Dict[str, Any]:
 
 @app.post("/books/{book_id}/lessons/{lesson_index}/video")
 async def create_lesson_video(book_id: str, lesson_index: int) -> Dict[str, Any]:
+    # Load outline to get lesson_id
+    outline_path = BOOKS_DIR / f"{book_id}_outline.json"
+    lesson_id = None
+    if outline_path.exists():
+        import json
+        outline = json.loads(outline_path.read_text(encoding="utf-8"))
+        lessons = outline.get("lessons", [])
+        if 0 <= lesson_index < len(lessons):
+            lesson_id = lessons[lesson_index].get("id", f"lesson_{lesson_index + 1}")
+
+    # Check if refined plan exists
+    custom_plan = None
+    if lesson_id:
+        custom_plan = load_video_plan(book_id, lesson_id)
+
     try:
-        video_path = generate_lesson_video(book_id, lesson_index)
+        video_path = generate_lesson_video(book_id, lesson_index, custom_plan=custom_plan)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Failed to generate video: {exc}") from exc
 
@@ -262,6 +311,105 @@ async def create_lesson_video(book_id: str, lesson_index: int) -> Dict[str, Any]
         "lesson_index": lesson_index,
         "video_url": f"/static/books/{book_id}/{video_path.name}",
     }
+
+
+@app.get("/books/{book_id}/lessons/{lesson_id}/video/plan")
+async def get_video_plan(book_id: str, lesson_id: str) -> Dict[str, Any]:
+    """Get the current video plan for a lesson"""
+    plan = load_video_plan(book_id, lesson_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="No video plan found. Generate a video first.")
+
+    return {
+        "book_id": book_id,
+        "lesson_id": lesson_id,
+        "plan": plan.model_dump(),
+    }
+
+
+@app.post("/books/{book_id}/lessons/{lesson_id}/video/refine")
+async def refine_video_plan(book_id: str, lesson_id: str, request: RefineVideoPlanRequest) -> Dict[str, Any]:
+    """Refine the video plan based on user instruction"""
+    import json
+
+    # Load current plan
+    current_plan = load_video_plan(book_id, lesson_id)
+    if not current_plan:
+        raise HTTPException(status_code=404, detail="No video plan found. Generate a video first.")
+
+    try:
+        # Build prompt for LLM
+        current_plan_json = json.dumps(current_plan.model_dump(), indent=2)
+
+        messages = [
+            {
+                "role": "system",
+                "content": """You are an expert video course designer. You modify video lesson plans based on user feedback.
+
+A video plan has this structure:
+{
+  "lessonId": "lesson_1",
+  "title": "Introduction to RAG",
+  "totalDurationSec": 120,
+  "slides": [
+    {
+      "title": "Overview",
+      "bullets": ["Point 1", "Point 2"],
+      "codeSnippet": "code here or null",
+      "narration": "What the instructor says",
+      "visualHint": "optional visual description",
+      "imagePath": "optional image path"
+    }
+  ],
+  "slideTimings": []
+}
+
+Your task: Modify the plan based on the user's instruction. You can:
+- Add/remove/reorder slides
+- Change slide titles, bullets, or narration
+- Add/remove code snippets
+- Adjust slide content for pacing
+- Change totalDurationSec estimate
+
+IMPORTANT: Return ONLY valid JSON matching the exact structure above. No explanations, just the modified plan."""
+            },
+            {
+                "role": "user",
+                "content": f"""Current video plan:
+{current_plan_json}
+
+User instruction: {request.instruction}
+
+Return the modified video plan as JSON:"""
+            }
+        ]
+
+        response = llm_client.chat_completion(messages=messages, temperature=0.3, max_tokens=3000)
+
+        # Try to extract JSON from response (handle markdown code blocks)
+        response_clean = response.strip()
+        if response_clean.startswith("```"):
+            # Remove markdown code blocks
+            lines = response_clean.split("\n")
+            response_clean = "\n".join(lines[1:-1]) if len(lines) > 2 else response_clean
+
+        refined_plan_dict = json.loads(response_clean)
+        refined_plan = LessonVideoPlan(**refined_plan_dict)
+
+        # Save refined plan
+        save_video_plan(book_id, lesson_id, refined_plan)
+
+        return {
+            "book_id": book_id,
+            "lesson_id": lesson_id,
+            "plan": refined_plan.model_dump(),
+            "message": "Video plan refined. Regenerate video to see changes.",
+        }
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse LLM response as JSON: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refine video plan: {e}")
 
 
 @app.get("/heygen/avatars")

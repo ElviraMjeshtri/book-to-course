@@ -5,6 +5,8 @@ import {
   generateLessonScript,
   generateLessonQuiz,
   generateLessonVideo,
+  refineScript,
+  refineVideoPlan,
   API_BASE_URL,
   type CourseOutline,
   type LessonOutline,
@@ -21,8 +23,8 @@ type LessonResources = {
   script?: { text: string; length: number };
   quiz?: QuizQuestion[];
   videoUrl?: string;
-  loading?: { script?: boolean; quiz?: boolean; video?: boolean };
-  errors?: { script?: string; quiz?: string; video?: string };
+  loading?: { script?: boolean; quiz?: boolean; video?: boolean; videoPlan?: boolean };
+  errors?: { script?: string; quiz?: string; video?: string; videoPlan?: string };
 };
 
 function App() {
@@ -197,6 +199,77 @@ function App() {
         ...prev,
         loading: { ...prev.loading, video: false },
         errors: { ...prev.errors, video: extractErrorMessage(err, "Failed to generate video.") },
+      }));
+    }
+  };
+
+  const handleRefineScript = async (message: string) => {
+    if (!bookId || !selectedLesson) return;
+
+    const lessonId = selectedLesson.id;
+    const currentScript = lessonResources[lessonId]?.script?.text;
+    if (!currentScript) return;
+
+    updateLessonResources(lessonId, (prev = {}) => ({
+      ...prev,
+      errors: { ...prev.errors, script: undefined },
+      loading: { ...prev.loading, script: true },
+    }));
+
+    try {
+      const response = await refineScript(bookId, lessonId, message, currentScript);
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        script: { text: response.script, length: response.script_length },
+        loading: { ...prev.loading, script: false },
+      }));
+    } catch (err) {
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        loading: { ...prev.loading, script: false },
+        errors: { ...prev.errors, script: extractErrorMessage(err, "Failed to refine script.") },
+      }));
+    }
+  };
+
+  const handleRefineVideo = async (instruction: string) => {
+    if (!bookId || !selectedLesson || !outline) return;
+
+    const lessonId = selectedLesson.id;
+    const lessonIndex = outline.lessons.findIndex((l) => l.id === lessonId);
+    if (lessonIndex < 0) return;
+
+    updateLessonResources(lessonId, (prev = {}) => ({
+      ...prev,
+      errors: { ...prev.errors, videoPlan: undefined, video: undefined },
+      loading: { ...prev.loading, videoPlan: true },
+    }));
+
+    try {
+      // Step 1: Refine the plan
+      await refineVideoPlan(bookId, lessonId, instruction);
+
+      // Step 2: Auto-regenerate video with refined plan
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        loading: { ...prev.loading, videoPlan: false, video: true },
+      }));
+
+      const response = await generateLessonVideo(bookId, lessonIndex);
+
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        videoUrl: response.video_url,
+        loading: { ...prev.loading, video: false },
+      }));
+    } catch (err) {
+      updateLessonResources(lessonId, (prev = {}) => ({
+        ...prev,
+        loading: { ...prev.loading, videoPlan: false, video: false },
+        errors: {
+          ...prev.errors,
+          videoPlan: extractErrorMessage(err, "Failed to refine and regenerate video.")
+        },
       }));
     }
   };
@@ -411,6 +484,8 @@ function App() {
                     onGenerateScript={handleGenerateScript}
                     onGenerateQuiz={handleGenerateQuiz}
                     onGenerateVideo={handleGenerateVideo}
+                    onRefineScript={handleRefineScript}
+                    onRefineVideo={handleRefineVideo}
                   />
                 ) : (
                   <EmptyState

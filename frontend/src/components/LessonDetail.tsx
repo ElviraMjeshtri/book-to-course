@@ -2,14 +2,15 @@ import React, { useState } from "react";
 import { VideoPlayer } from "./VideoPlayer";
 import { Tabs, TabPanel, type Tab } from "./Tabs";
 import { MoreMenu, type MenuItem } from "./MoreMenu";
+import { ChatPanel } from "./ChatPanel";
 import type { LessonOutline, QuizQuestion } from "../api";
 
 interface LessonResources {
   script?: { text: string; length: number };
   quiz?: QuizQuestion[];
   videoUrl?: string;
-  loading?: { script?: boolean; quiz?: boolean; video?: boolean };
-  errors?: { script?: string; quiz?: string; video?: string };
+  loading?: { script?: boolean; quiz?: boolean; video?: boolean; videoPlan?: boolean };
+  errors?: { script?: string; quiz?: string; video?: string; videoPlan?: string };
 }
 
 interface LessonDetailProps {
@@ -19,6 +20,8 @@ interface LessonDetailProps {
   onGenerateScript: () => void;
   onGenerateQuiz: () => void;
   onGenerateVideo: () => void;
+  onRefineScript: (message: string) => void;
+  onRefineVideo: (instruction: string) => void;
 }
 
 export const LessonDetail: React.FC<LessonDetailProps> = ({
@@ -28,6 +31,8 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
   onGenerateScript,
   onGenerateQuiz,
   onGenerateVideo,
+  onRefineScript,
+  onRefineVideo,
 }) => {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -40,18 +45,20 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
   const hasScript = !!resources?.script;
   const hasQuiz = resources?.quiz && resources.quiz.length > 0;
   const hasVideo = !!videoUrl;
-  
+
   // Loading states
   const isLoadingScript = !!resources?.loading?.script;
   const isLoadingQuiz = !!resources?.loading?.quiz;
   const isLoadingVideo = !!resources?.loading?.video;
-  const isLoading = isLoadingScript || isLoadingQuiz || isLoadingVideo;
+  const isLoadingVideoPlan = !!resources?.loading?.videoPlan;
+  const isLoading = isLoadingScript || isLoadingQuiz || isLoadingVideo || isLoadingVideoPlan;
 
   // Get loading message for banner
   const getLoadingMessage = (): string | null => {
     if (isLoadingScript) return "Generating lesson script...";
     if (isLoadingQuiz) return "Generating quiz questions...";
     if (isLoadingVideo) return "Generating video (this may take a few minutes)...";
+    if (isLoadingVideoPlan) return "Refining video plan...";
     return null;
   };
 
@@ -248,6 +255,7 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
               <span>~{Math.round(resources.script.text.split(/\s+/).length / 150)} min read</span>
             </div>
             <pre className="script-preview">{resources.script.text}</pre>
+            <ChatPanel onSendMessage={onRefineScript} isLoading={isLoadingScript} />
           </div>
         ) : (
           <div className="empty-tab">
@@ -309,11 +317,23 @@ export const LessonDetail: React.FC<LessonDetailProps> = ({
             <p className="loading-hint">This may take 2-5 minutes. You can switch tabs while waiting.</p>
           </div>
         ) : videoUrl ? (
-          <VideoPlayer
-            src={videoUrl}
-            title={lesson.title}
-            lessonId={lesson.id}
-          />
+          <div className="video-content">
+            <VideoPlayer
+              src={videoUrl}
+              title={lesson.title}
+              lessonId={lesson.id}
+            />
+            <ChatPanel
+              onSendMessage={onRefineVideo}
+              isLoading={isLoadingVideoPlan || isLoadingVideo}
+            />
+            {isLoadingVideoPlan && (
+              <p className="chat-hint">Refining video plan...</p>
+            )}
+            {!isLoadingVideoPlan && isLoadingVideo && (
+              <p className="chat-hint">Regenerating video with refined plan (2-5 minutes)...</p>
+            )}
+          </div>
         ) : (
           <div className="empty-tab">
             <p>No video generated yet.</p>

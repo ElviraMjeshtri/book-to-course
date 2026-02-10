@@ -21,14 +21,38 @@ Hosted on GitHub: [ElviraMjeshtri/book-to-course](https://github.com/ElviraMjesh
 
 ## Getting Started
 
-### 1. Clone
+### 🐳 Quick Start with Docker (Recommended)
 
 ```bash
+# 1. Clone the repository
 git clone git@github.com:ElviraMjeshtri/book-to-course.git
 cd book-to-course
+
+# 2. Copy environment file
+cp .env.example .env
+# Edit .env with your API keys (optional - can use demo account)
+
+# 3. Start everything with one command
+./start.sh
 ```
 
-### 2. Backend Setup
+**Access the application:**
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+**Demo Account:**
+- Email: `demo@booktocourse.local`
+- Password: `password123`
+
+---
+
+### 🛠️ Manual Setup (Alternative)
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
+
+#### 1. Backend Setup
 
 ```bash
 cd backend
@@ -38,15 +62,16 @@ pip install -r requirements.txt
 cp .env.example .env               # Add your secrets here
 ```
 
-#### Required Environment Variables
+##### Required Environment Variables
 
 | Key | Description |
 | --- | --- |
-| `OPENAI_API_KEY` | API key for the OpenAI account used by the Course Designer. |
-| `OPENAI_MODEL` *(optional)* | Overrides default `gpt-4.1-mini`. Useful for experimentation. |
-| `ANTHROPIC_API_KEY` *(optional)* | Reserved for future Anthropics-based Lesson Generator flows. |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SECRET_KEY` | JWT secret key (generate with `openssl rand -hex 32`) |
+| `OPENAI_API_KEY` | API key for the OpenAI account |
+| `ANTHROPIC_API_KEY` *(optional)* | Anthropic API key |
 
-### 3. Frontend Setup
+#### 2. Frontend Setup
 
 ```bash
 cd ../frontend
@@ -59,14 +84,23 @@ If your backend isn't running on `http://localhost:8000`, add a `.env` file unde
 VITE_API_BASE_URL=http://your-backend-host:port
 ```
 
-### 4. Video Dependencies Setup
+#### 3. Video Dependencies Setup (Optional)
 
 ```bash
 cd ../video
 npm install
 ```
 
-This installs Remotion and other dependencies required for video generation.
+This installs Remotion and other dependencies for advanced video editing.
+
+#### 4. Database Setup
+
+Start PostgreSQL and run the schema:
+```bash
+psql -U admin -d book_to_course -f backend/init-db.sql
+```
+
+</details>
 
 ## Running the Stack
 
@@ -149,3 +183,146 @@ book_to_course/
 4. Push and open a PR targeting `main`.
 
 Please open issues for bugs, enhancement ideas, or architectural discussions. Contributions that advance the Lesson Generator and Video Orchestrator phases are especially welcome!
+---
+
+## 🎬 Video Generation
+
+### Backend Video Generation (ffmpeg)
+
+The backend container includes **ffmpeg** for video processing. The application can generate videos directly using:
+- HeyGen API (avatar videos)
+- Local ffmpeg rendering (slide-based videos)
+- Custom video compositions
+
+### Advanced Video Editing (Remotion - Optional)
+
+For advanced video editing and customization, you can use Remotion Studio:
+
+```bash
+# Install dependencies
+cd video
+npm install
+
+# Start Remotion Studio
+docker-compose --profile video up -d video-service
+
+# Or run locally
+npm run dev
+```
+
+Access Remotion Studio at http://localhost:3001
+
+---
+
+## 🔐 Authentication & Multi-User Support
+
+The application includes full authentication:
+
+- **Email/Password Registration & Login**
+- **JWT-based authentication** (access + refresh tokens)
+- **User-specific data isolation** (each user has their own books, lessons, videos)
+- **Encrypted API key storage** (users can store their own OpenAI, Anthropic, etc. keys)
+- **Google OAuth** (coming soon)
+
+See [AUTH_IMPLEMENTATION.md](AUTH_IMPLEMENTATION.md) for detailed documentation.
+
+---
+
+## 🐳 Docker Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Frontend | 5173 | React/Vite web application |
+| Backend | 8000 | FastAPI REST API |
+| PostgreSQL | 5432 | User database |
+| pgAdmin | 5050 | Database admin interface |
+| Video Service | 3001 | Remotion Studio (optional) |
+
+### Stop Services
+
+```bash
+# Interactive cleanup script
+./stop.sh
+```
+
+Options:
+1. Stop containers (keep data)
+2. Stop and remove containers (keep data)
+3. Full cleanup (⚠️ deletes all data)
+
+---
+
+## 📚 API Documentation
+
+Interactive API documentation available at:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+### Key Endpoints
+
+**Authentication:**
+- `POST /auth/register` - Create new account
+- `POST /auth/login` - Login
+- `GET /auth/me` - Get current user
+
+**Books:**
+- `POST /books/upload` - Upload PDF
+- `POST /books/{book_id}/outline` - Generate course outline
+
+**API Keys:**
+- `GET /api-keys` - List user's API keys
+- `POST /api-keys` - Add/update API key
+
+All endpoints (except `/health` and `/auth/*`) require authentication.
+
+---
+
+## 🏗️ Project Structure (Updated)
+
+```
+book-to-course/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # FastAPI app + routes
+│   │   ├── database.py          # SQLAlchemy setup
+│   │   ├── models.py            # Database models
+│   │   ├── auth_routes.py       # Authentication endpoints
+│   │   ├── api_key_routes.py    # API key management
+│   │   ├── auth_utils.py        # JWT, password, encryption
+│   │   ├── user_api_key_helper.py # User API key retrieval
+│   │   ├── pdf_utils.py         # PDF extraction
+│   │   ├── llm_utils.py         # LLM integration
+│   │   ├── video_orchestrator.py # Video generation
+│   │   └── ...
+│   ├── Dockerfile               # Backend container
+│   ├── init-db.sql              # Database schema
+│   └── requirements.txt
+│
+├── frontend/
+│   ├── src/
+│   │   ├── contexts/
+│   │   │   └── AuthContext.tsx  # Auth state management
+│   │   ├── components/
+│   │   │   ├── AuthPage.tsx     # Login/Register UI
+│   │   │   ├── LoginForm.tsx
+│   │   │   ├── RegisterForm.tsx
+│   │   │   └── ...
+│   │   ├── AppWithAuth.tsx      # App wrapper with auth
+│   │   ├── App.tsx              # Main application
+│   │   └── api.ts               # API client with JWT
+│   ├── Dockerfile               # Frontend container
+│   ├── nginx.conf               # Nginx configuration
+│   └── package.json
+│
+├── video/                       # Remotion video generation
+│   ├── src/                     # Remotion components
+│   └── package.json
+│
+├── docker-compose.yml           # All services
+├── start.sh                     # Start script
+├── stop.sh                      # Stop script
+├── .env.example                 # Environment template
+├── AUTH_IMPLEMENTATION.md       # Auth documentation
+└── README.md
+```
+

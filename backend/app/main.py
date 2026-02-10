@@ -1,12 +1,15 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pypdf import PdfReader
+from sqlalchemy.orm import Session
 
+from .database import get_db, engine, Base
+from .models import User
 from .pdf_utils import (
     save_uploaded_pdf,
     extract_text_from_pdf,
@@ -37,12 +40,18 @@ from .config import config, AVAILABLE_MODELS, AVAILABLE_TTS, LLMProvider, TTSPro
 from .llm_client import llm_client
 from .tts_client import tts_client
 
+# Import auth routes
+from . import auth_routes
+from . import api_key_routes
+from .auth_routes import get_current_user
+
 app = FastAPI(
     title="Book-to-Video Course Generator",
-    version="0.1.0",
+    version="0.2.0",
+    description="Multi-user platform to generate video courses from books with AI"
 )
 
-# Allow everything for now (for local dev)
+# CORS middleware MUST be added before routes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,6 +59,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Create database tables on startup
+@app.on_event("startup")
+def on_startup():
+    """Create database tables if they don't exist"""
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database tables initialized")
+
+# Include auth routes
+app.include_router(auth_routes.router)
+app.include_router(api_key_routes.router)
 
 app.mount(
     "/static/books",
@@ -98,7 +118,12 @@ def health() -> Dict[str, str]:
 
 
 @app.post("/books/upload")
-async def upload_book(file: UploadFile = File(...)) -> Dict[str, Any]:
+async def upload_book(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Upload a book (PDF) - requires authentication"""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported for now")
 
@@ -116,11 +141,33 @@ async def upload_book(file: UploadFile = File(...)) -> Dict[str, Any]:
     # 4) Extract images from PDF
     images = extract_images_from_pdf(pdf_path, book_id)
 
+    # 5) Save book record to database
+    from .models import Book
+    import uuid as uuid_lib
+
+    # Clean extracted text - remove null bytes that PostgreSQL doesn't like
+    clean_text = text.replace('\x00', '')[:1000]
+
+    book = Book(
+        id=uuid_lib.UUID(book_id),  # Convert string to UUID
+        user_id=current_user.id,
+        title=file.filename,
+        filename=file.filename,
+        file_path=str(pdf_path),
+        file_size=pdf_path.stat().st_size if pdf_path.exists() else None,
+        status="uploaded",
+        extracted_text=clean_text,  # Save first 1000 chars as preview (cleaned)
+        book_metadata={"images_count": len(images)}
+    )
+    db.add(book)
+    db.commit()
+
     return {
         "book_id": book_id,
         "pages_processed": len(PdfReader(str(pdf_path)).pages),
         "images_extracted": len(images),
         "message": "Book uploaded, text and images extracted.",
+        "user_id": str(current_user.id)
     }
 
 

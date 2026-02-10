@@ -1025,11 +1025,12 @@ def generate_lesson_video(book_id: str, lesson_index: int, custom_plan: Optional
         if book_images:
             print(f"📷 Found {len(book_images)} images, matching to slides...")
             _match_images_to_slides(plan.slides, book_images, plan.title)
-            # Copy matched images to Remotion public folder
-            _copy_matched_images_to_public(plan.slides, book_id)
 
         # Save the generated plan for future refinement
         save_video_plan(book_id, plan.lessonId, plan)
+
+    # Always copy matched images to Remotion public folder (for both new and refined videos)
+    _copy_matched_images_to_public(plan.slides, book_id)
 
     plan, final_audio_path = build_audio_and_timings_for_plan(plan, book_dir)
     audio_public = _copy_to_public(final_audio_path, book_id=book_id)

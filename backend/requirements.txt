@@ -11,3 +11,17 @@ google-generativeai
 elevenlabs
 google-cloud-texttospeech
 mistralai
+
+# Database
+sqlalchemy
+psycopg2-binary
+alembic
+
+# Authentication
+python-jose[cryptography]
+passlib[argon2]
+python-multipart
+authlib
+itsdangerous
+cryptography
+email-validator

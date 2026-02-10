@@ -1,0 +1,159 @@
+# Book-to-Course Application - Docker Compose
+# Single command deployment: ./start.sh or docker-compose up
+
+version: '3.8'
+
+services:
+  # ==================== DATABASE ====================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: book-to-course-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+      POSTGRES_DB: ${POSTGRES_DB:-book_to_course}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - book-to-course-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-book_to_course}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: book-to-course-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@booktocourse.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - book-to-course-network
+
+  # ==================== DATABASE INITIALIZATION ====================
+
+  db-init:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: book-to-course-db-init
+    command: python -c "print('Database initialized successfully')"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-book_to_course}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - book-to-course-network
+    restart: "no"  # Run once only
+    profiles:
+      - init  # Only run with --profile init or when explicitly started
+
+  # ==================== BACKEND API ====================
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: book-to-course-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-book_to_course}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - PYTHONPATH=/app
+    volumes:
+      - ./backend/data:/app/data
+      - backend_logs:/app/logs
+      - ./video:/video
+      - video_node_modules:/video/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - book-to-course-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==================== VIDEO SERVICE (Remotion) ====================
+
+  video-service:
+    image: node:18-alpine
+    container_name: book-to-course-video
+    working_dir: /app
+    volumes:
+      - ./video:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "${VIDEO_PORT:-3001}:3000"
+    networks:
+      - book-to-course-network
+    restart: unless-stopped
+    profiles:
+      - video  # Optional service - only start if needed
+
+  # ==================== FRONTEND WEB APP ====================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=http://localhost:8000
+    container_name: book-to-course-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - book-to-course-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ==================== NETWORKS ====================
+
+networks:
+  book-to-course-network:
+    driver: bridge
+    name: book-to-course-network
+
+# ==================== VOLUMES ====================
+
+volumes:
+  postgres_data:
+    name: book-to-course-postgres-data
+  pgadmin_data:
+    name: book-to-course-pgadmin-data
+  backend_logs:
+    name: book-to-course-backend-logs
+  video_node_modules:
+    name: book-to-course-video-node-modules

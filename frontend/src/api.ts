@@ -7,6 +7,16 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
+// Add auth token to requests
+api.interceptors.request.use((config) => {
+  const authTokens = localStorage.getItem('auth_tokens');
+  if (authTokens) {
+    const { access_token } = JSON.parse(authTokens);
+    config.headers.Authorization = `Bearer ${access_token}`;
+  }
+  return config;
+});
+
 export interface LessonOutline {
   id: string;
   title: string;
